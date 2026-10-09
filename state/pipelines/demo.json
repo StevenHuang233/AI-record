@@ -1,0 +1,20 @@
+{
+  "title": "示例：数据清洗到评测流水线",
+  "description": "这是一个示例定义，演示结构图与中文说明。替换或删除本文件，换成你自己的 Pipeline。\n节点状态由「关联到该节点的任务」自动汇总：任务上报时带上 pipeline 与 node 即可。",
+  "nodes": [
+    {"id": "collect", "name": "数据采集", "kind": "source",  "desc": "从原始来源拉取样本，落盘为统一格式。"},
+    {"id": "clean",   "name": "清洗过滤", "kind": "process", "desc": "去重、格式校验、规则过滤，丢弃不合格样本。"},
+    {"id": "label",   "name": "模型标注", "kind": "process", "desc": "调用模型生成参考答案，可多分片并行。"},
+    {"id": "train",   "name": "模型训练", "kind": "train",   "desc": "使用加工后的数据微调模型，产出权重。"},
+    {"id": "eval",    "name": "评测打分", "kind": "eval",    "desc": "在评测集上推理并按官方口径打分。"},
+    {"id": "report",  "name": "结果汇总", "kind": "output",  "desc": "汇总指标，生成对比报告。"}
+  ],
+  "edges": [
+    {"from": "collect", "to": "clean"},
+    {"from": "clean", "to": "label"},
+    {"from": "clean", "to": "train", "label": "训练集"},
+    {"from": "label", "to": "train", "label": "标注"},
+    {"from": "train", "to": "eval"},
+    {"from": "eval", "to": "report"}
+  ]
+}

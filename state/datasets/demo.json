@@ -1,0 +1,23 @@
+{
+  "title": "示例：数据血缘与资产",
+  "description": "示例定义：节点是数据资产，箭头是加工关系。大小、条数等可手写在 meta，也可对本机目录开启 auto_stat 自动统计。",
+  "nodes": [
+    {"id": "raw",     "name": "原始语料", "kind": "raw",       "desc": "采集得到的原始样本，只读保存。",
+     "meta": {"storage": "共享盘A", "size_bytes": 2400000000, "count": 120000, "format": "jsonl", "version": "v1", "updated": "2026-10-01", "owner": "team-a"}},
+    {"id": "clean",   "name": "清洗后数据", "kind": "processed", "desc": "去重与过滤后的训练候选集。",
+     "meta": {"storage": "共享盘A", "size_bytes": 1800000000, "count": 69999, "format": "jsonl", "version": "v2", "updated": "2026-10-03"}},
+    {"id": "bench",   "name": "评测集", "kind": "external",  "desc": "公开评测集的本地副本。",
+     "meta": {"storage": "共享盘B", "size_bytes": 7400000000, "count": 15000, "format": "parquet", "version": "2026-09"}},
+    {"id": "labels",  "name": "模型标注结果", "kind": "derived", "status": "building", "desc": "由模型生成的参考答案，正在生成。",
+     "meta": {"storage": "本地盘", "size_bytes": 300000000, "count": 40000, "format": "jsonl", "version": "v1"}},
+    {"id": "weights", "name": "模型权重", "kind": "model",     "status": "pending", "desc": "训练产出，尚未生成。",
+     "meta": {"storage": "共享盘B", "format": "safetensors"}}
+  ],
+  "edges": [
+    {"from": "raw", "to": "clean", "label": "清洗"},
+    {"from": "clean", "to": "labels", "label": "模型标注"},
+    {"from": "clean", "to": "weights", "label": "训练"},
+    {"from": "labels", "to": "weights"},
+    {"from": "bench", "to": "weights", "label": "评测"}
+  ]
+}
