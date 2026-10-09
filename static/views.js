@@ -5,7 +5,7 @@ import { h, s, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, asse
 import { S, resolveRef, findGraph } from "./store.js";
 import { drawGraph, orderedNodes, ancestors, nodeSize } from "./graph.js";
 
-const COLORS = ["#4c7cf0", "#35b58a", "#e0a030", "#b667d9", "#e2675d", "#57a6c9"];
+const COLORS = ["#2f6f9f", "#4f8a4b", "#c28a1e", "#8a5a9e", "#b94a3a", "#3f8f8f"];
 const asArr = (x) => (Array.isArray(x) ? x : x == null || x === "" ? [] : [x]);
 
 /* ── 通用小部件 ───────────────────────────────────────────────────────────── */
@@ -14,8 +14,10 @@ const kvSpan = (k, v) => h("span", {}, k + " ", h("b", {}, v));
 const empty = (...kids) => h("div", { class: "empty" }, kids);
 const noteLine = (txt) => h("div", { class: "warn" }, txt);
 
+/* 子页面链接：kind = pipelines|datasets|task，ref = "图id" 或 "图id/节点id" */
+export const hrefOf = (kind, ref) => `#/${kind}/${String(ref).split("/").map(encodeURIComponent).join("/")}`;
 function link(kind, ref, label) {
-  return h("a", { class: "xlink", "data-act": "goref", "data-a1": kind, "data-a2": ref, role: "button", tabindex: 0 }, label);
+  return h("a", { class: "xlink", href: hrefOf(kind, ref) }, label);
 }
 
 function field(label, content) {
@@ -158,7 +160,7 @@ function runCard(t) {
     const strip = h("div", { class: "steps-strip" }, steps.map((n, i) => {
       const c = sc[n.id] || {};
       const txt = [c.running ? `▶${c.running}` : "", c.done ? `✓${fmtNum(c.done)}` : "", c.failed ? `✗${c.failed}` : "", c.pending ? `…${c.pending}` : ""].filter(Boolean).join(" ");
-      return h("div", { class: `ss st-${n.status}`, "data-key": "ss:" + n.id, "data-act": "goref", "data-a1": "pipelines", "data-a2": g.id + "/" + n.id, role: "button", tabindex: 0 },
+      return h("a", { class: `ss st-${n.status}`, "data-key": "ss:" + n.id, href: hrefOf("pipelines", g.id + "/" + n.id) },
         h("div", { class: "ss-n" }, i + 1), h("div", { class: "ss-name" }, n.name || n.id), h("div", { class: "ss-role" }, clip(n.role || "", 22)),
         h("div", { class: "ss-c" }, txt || "—"));
     }));
@@ -195,27 +197,14 @@ function jobCard(t) {
 
 export const taskCard = (t) => ({ train: trainCard, eval: evalCard, run: runCard }[t.kind] || jobCard)(t);
 
-export function taskSection(kind, tasks, hint) {
-  const title = TASK_KIND[kind];
-  const active = (t) => (t.status === "running" || t.status === "queued" ? 0 : 1);
-  const sorted = [...tasks].sort((a, b) => active(a) - active(b));
-  const cards = sorted.slice(0, 12), rest = sorted.slice(12);
-  return h("section", { id: "t-" + kind, "data-key": "sec:t-" + kind },
-    h("h2", {}, title, h("small", {}, `${tasks.length} 条${hint ? " · " + hint : ""}`)),
-    tasks.length ? h("div", { class: "tasks" }, cards.map(taskCard)) : empty(`暂无${title}记录。`),
-    rest.length ? h("div", { class: "card" }, h("div", { class: "fk" }, "更早的记录"), h("div", { class: "tbl-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, ["任务", "状态", "进度", "耗时", "最后更新"].map((c) => h("th", {}, c)))),
-      h("tbody", {}, rest.slice(0, 50).map((t) => h("tr", { "data-key": "r:" + t.id },
-        h("td", {}, h("b", {}, t.name || t.id), " ", h("span", { class: "id" }, t.id)), h("td", {}, badge(t.status, TASK_ST)),
-        h("td", { style: { minWidth: "130px" } }, bar(t.progress, t.status, { sm: true })), h("td", { class: "num" }, fmtDur(t.elapsed)),
-        h("td", { class: "num" }, fmtTime(t.updated_at)))))))) : null);
-}
-
 /* ── 节点详情 ─────────────────────────────────────────────────────────────── */
-function relLinks(kind, g, nid) {
+function relLinks(kind, g, nid, nav) {
   const nm = new Map(g.nodes.map((n) => [n.id, n]));
-  const mk = (ids, edgeLbl) => ids.map((i) => h("a", { class: "xlink", "data-act": "selnode", "data-a1": `${kind}/${g.id}`, "data-a2": i, role: "button", tabindex: 0, "data-key": "rl" + i },
-    (nm.get(i).name || i) + (edgeLbl.get(i) ? `（${edgeLbl.get(i)}）` : "")));
+  const label = (i, edgeLbl) => (nm.get(i).name || i) + (edgeLbl.get(i) ? `（${edgeLbl.get(i)}）` : "");
+  /* nav=true（子页面）→ 跳转到上/下游节点的子页面；否则只在当前图里切换选中节点 */
+  const mk = (ids, edgeLbl) => ids.map((i) => (nav
+    ? h("a", { class: "xlink", href: hrefOf(kind, `${g.id}/${i}`), "data-key": "rl" + i }, label(i, edgeLbl))
+    : h("a", { class: "xlink", "data-act": "selnode", "data-a1": `${kind}/${g.id}`, "data-a2": i, role: "button", tabindex: 0, "data-key": "rl" + i }, label(i, edgeLbl))));
   const upL = new Map(), dnL = new Map();
   const ups = g.edges.filter((e) => e.to === nid).map((e) => { upL.set(e.from, e.label); return e.from; });
   const downs = g.edges.filter((e) => e.from === nid).map((e) => { dnL.set(e.to, e.label); return e.to; });
@@ -227,13 +216,14 @@ const refLinks = (kind, refs) => asArr(refs).map((r) => {
   return hit ? link(kind, r, hit.n.name || r) : h("span", { class: "tag", title: "引用不存在" }, String(r));
 });
 
-function pipeNodeDetail(g, n) {
+export function pipeNodeDetail(g, n, nav) {
   if (!n) return h("div", { class: "panel", "data-key": "detail" }, h("h4", {}, "步骤详情"), h("span", { class: "desc" }, "点击结构图里的节点或右侧列表查看这一步的作用、输入输出和进度。"));
   const tasks = (n.tasks || []).map((id) => S.state.tasks.find((t) => t.id === id)).filter(Boolean);
   const groups = (g.groups || []).filter((x) => x.nodes.includes(n.id)).map((x) => x.name);
   const it = n.items;
-  return h("div", { class: "panel", "data-key": "detail" }, h("h4", {}, "步骤详情"),
-    h("div", {}, h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.stale ? h("span", { class: "badge stale", style: { marginLeft: "6px" } }, "疑似停滞") : null),
+  return h("div", { class: nav ? "panel flat" : "panel", "data-key": "detail" }, nav ? null : h("h4", {}, "步骤详情"),
+    h("div", {}, h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.stale ? h("span", { class: "badge stale", style: { marginLeft: "6px" } }, "疑似停滞") : null,
+      nav ? null : h("a", { class: "xlink open", href: hrefOf("pipelines", `${g.id}/${n.id}`) }, "打开步骤子页面 →")),
     field("作用", n.role), field("详细说明", n.desc), field("输入", n.inputs), field("输出", n.outputs),
     field("所属阶段", groups.length ? groups.map((x) => tag(x)) : null),
     field("读取的数据", n.reads ? refLinks("datasets", n.reads) : null), field("写入的数据", n.writes ? refLinks("datasets", n.writes) : null),
@@ -241,15 +231,15 @@ function pipeNodeDetail(g, n) {
     n.progress != null ? h("div", { class: "pct-row" }, bar(n.progress, n.status, { sm: true }), h("span", { class: "pct" }, fmtPct(n.progress))) : null,
     it ? field("数据要素", `处理中 ${it.running} · 已完成本步 ${it.done} · 失败 ${it.failed} · 排队 ${it.pending} · 已流转到后续步骤 ${it.passed}（总 ${it.total}）`) : null,
     tasks.length ? field("关联任务", tasks.map((t) => h("div", { class: "pct-row", "data-key": "lt:" + t.id },
-      h("span", { class: "id", style: { minWidth: "110px" } }, t.name || t.id), bar(t.progress, t.status, { sm: true, stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))))) : null,
-    relLinks("pipelines", g, n.id));
+      h("a", { class: "xlink", href: hrefOf("task", t.id), style: { minWidth: "110px" } }, t.name || t.id), bar(t.progress, t.status, { sm: true, stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))))) : null,
+    relLinks("pipelines", g, n.id, nav));
 }
 
 function processingLines(p) {
   return asArr(p).map((x) => (typeof x === "string" ? x : x && typeof x === "object" ? `${x.step ? x.step + "：" : ""}${x.desc || ""}${x.to ? "（→ " + x.to + "）" : ""}` : String(x)));
 }
 
-function dataNodeDetail(g, n) {
+export function dataNodeDetail(g, n, nav) {
   if (!n) return h("div", { class: "panel", "data-key": "detail" }, h("h4", {}, "数据详情"), h("span", { class: "desc" }, "点击图中的数据资产或右侧清单，查看它的含义、来源、用处、存放地址和被处理情况。"));
   const ref = `${g.id}/${n.id}`, m = n.meta || {};
   const nmap = new Map(g.nodes.map((x) => [x.id, x]));
@@ -278,17 +268,18 @@ function dataNodeDetail(g, n) {
         h("td", { class: "num" }, sTxt), h("td", {}, st ? (st.missing ? badge("missing", NODE_ST) : st.pending ? "-" : badge("ready", NODE_ST)) : "-"));
     })))) : noteLine("未记录存放地址（请填写 locations；有备份请写多条）");
   const rows = Object.entries(m).filter(([k, v]) => !META_HIDE.has(k) && v != null && v !== "");
-  return h("div", { class: "panel", "data-key": "detail" }, h("h4", {}, "数据详情"),
+  return h("div", { class: nav ? "panel flat" : "panel", "data-key": "detail" }, nav ? null : h("h4", {}, "数据详情"),
     h("div", {}, h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
-      n.replica ? h("span", { class: `badge rep-${n.replica}`, style: { marginLeft: "6px" } }, REPLICA[n.replica]) : null),
+      n.replica ? h("span", { class: `badge rep-${n.replica}`, style: { marginLeft: "6px" } }, REPLICA[n.replica]) : null,
+      nav ? null : h("a", { class: "xlink open", href: hrefOf("datasets", `${g.id}/${n.id}`) }, "打开数据子页面 →")),
     field("含义", n.desc), field("来源", n.source), field("用处", n.purpose),
     field("被处理情况", lines.length ? h("ul", { class: "bul" }, lines.map((x, i) => h("li", { "data-key": "pl" + i }, x))) : noteLine("未记录被处理情况（请填写 processing）")),
     h("div", { class: "fld" }, h("div", { class: "fk" }, `存放地址（${locs.length} 个）`), locTable),
-    field("被使用", users.length ? users.map((t) => h("div", { "data-key": "us:" + t.id }, tag(TASK_KIND[t.kind] || "任务"), " ", t.name || t.id, " ",
+    field("被使用", users.length ? users.map((t) => h("div", { "data-key": "us:" + t.id }, tag(TASK_KIND[t.kind] || "任务"), " ", link("task", t.id, t.name || t.id), " ",
       tag(asArr(t.datasets).find((d) => d.ref === ref).role || "用于"), " ", badge(t.status, TASK_ST))) : null),
     n.progress != null ? h("div", { class: "pct-row" }, bar(n.progress, n.status, { sm: true }), h("span", { class: "pct" }, fmtPct(n.progress))) : null,
     rows.length ? h("dl", { class: "meta" }, rows.map(([k, v]) => [h("dt", {}, META_LABEL[k] || k), h("dd", {}, k === "size_bytes" ? fmtBytes(v) : typeof v === "number" ? fmtNum(v) : String(v))])) : null,
-    relLinks("datasets", g, n.id));
+    relLinks("datasets", g, n.id, nav));
 }
 
 /* ── Pipeline / 数据管理 ──────────────────────────────────────────────────── */

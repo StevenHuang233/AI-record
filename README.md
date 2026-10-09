@@ -11,17 +11,20 @@ python3 server.py --host 0.0.0.0 --port 8765    # 对外监听前必须先 expor
 
 状态全部存放在 `state/`（`SB_STATE_DIR` 或 `--state-dir` 可改），实时模式每 2.5 秒轮询刷新。
 
-## 页面结构
+## 页面结构（子页面嵌套，米黄色基调）
 
-| 区块 | 内容 |
+用 URL hash 做多级子页面，带面包屑，可分享链接、浏览器前进后退可用：
+
+| 地址 | 内容 |
 |---|---|
-| 训练 | 模型、使用的数据（含地址、用量）、超参数、训练曲线、指标 |
-| 流水线执行 | 每个步骤上的数据要素数、「要素 × 步骤」矩阵 |
-| 评测 | 评测集及其地址、被测模型、进度与分数 |
-| Pipeline 结构图 | 每个节点标注「作用」；点击看输入/输出/读写的数据/进度；右侧按流程顺序列出各步骤说明 |
-| 数据管理 | 数据血缘图 + 资产清单；每份数据记录**所有存放地址（含备份，自动校验副本一致性）**、含义、来源、用处、被处理情况 |
-| 定制模块 | 指标卡、柱状/折线图、表格、图片/音视频、jsonl 样本抽查、并排对比等 |
-| 底部时间线 | 拖动 / 播放(0.5x–8x) / 上一个下一个 / 仅看关键事件 / 里程碑旗标；回放时节点平移、连线形变、进度条增长、曲线延伸、元素淡入淡出 |
+| `#/` | 首页：六类入口、正在运行的任务、需要关注（失败/停滞/数据缺失/副本不一致）、最近里程碑 |
+| `#/train` → `#/task/<id>` | 训练列表 → 详情：模型、使用的数据（含地址、用量）、超参数、训练曲线、指标 |
+| `#/run` → `#/task/<id>` | 流水线执行：每个步骤上的数据要素数、「要素 × 步骤」矩阵 |
+| `#/eval` → `#/task/<id>` | 评测：评测集及其地址、被测模型、进度与分数 |
+| `#/pipelines` → `#/pipelines/<图>` → `#/pipelines/<图>/<步骤>` | 结构图（节点标注「作用」）→ 单个步骤子页面（输入输出、读写的数据、关联任务、上一步/下一步） |
+| `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据血缘图 + 清单 → 单份数据：**所有存放地址（含备份，自动校验副本一致性）**、含义、来源、用处、被处理情况 |
+| `#/modules` → `#/modules/<id>` | 指标卡、柱状/折线图、表格、图片/音视频、jsonl 样本抽查、并排对比等 |
+| 底部时间线（全局） | 拖动 / 播放(0.5x–8x) / 上一个下一个 / 仅看关键事件 / 里程碑旗标；回放时节点平移、连线形变、进度条增长、曲线延伸、元素淡入淡出；回放中可继续点进子页面 |
 
 ## 快速使用
 
@@ -48,7 +51,7 @@ python3 sb.py -h          # 全部命令
 
 ## 给 AI 用
 
-仓库自带 skill：`.codebuddy/skills/status-board/`（`SKILL.md` + `references/schema.md`）。把它放进 AI 的 skills 目录（项目级随仓库，或拷到 `~/.codebuddy/skills/`），AI 就知道怎么记录训练、评测、流水线执行、数据资产和里程碑，以及写完后如何 `validate`。
+仓库自带 skill：`skills/status-board/`（`SKILL.md` + `references/schema.md`），`.codebuddy/skills/status-board` 是指向它的软链，所以 clone 仓库后在仓库内工作的 AI 会直接发现它。想让其他项目里的 AI 也能用：`cp -r skills/status-board ~/.codebuddy/skills/`。AI 读完就知道怎么记录训练、评测、流水线执行、数据资产和里程碑，以及写完后如何 `validate`。
 
 ## 时间线是怎么来的
 
@@ -67,7 +70,7 @@ python3 sb.py -h          # 全部命令
 
 ```
 server.py    HTTP 服务 + 状态汇总 + 时间线回放     sb.py     上报库 / 命令行
-sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph views timeline app）
+sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph views pages timeline app）
 state/       board.json pipelines/ datasets/ modules/ tasks/ assets/ timeline.jsonl
-.codebuddy/skills/status-board/   给 AI 的使用说明
+skills/status-board/              给 AI 的使用说明（.codebuddy/skills/ 下有软链）
 ```

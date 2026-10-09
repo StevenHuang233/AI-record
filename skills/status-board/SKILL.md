@@ -63,6 +63,20 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 
 **D. 做效果展示/数据集展示** → 写 `modules` 定义（见 `references/schema.md` §7），资源放资源目录（默认 `state/assets/`，`SB_ASSETS_DIR` 可改），用相对路径引用。
 
+## 页面是子页面嵌套的（给用户汇报时可以直接给链接）
+
+看板是多级子页面，URL 用 hash，可分享、可前进后退：
+
+| 地址 | 内容 |
+|---|---|
+| `#/` | 首页：各类入口、正在运行、需要关注、最近里程碑 |
+| `#/train` `#/run` `#/eval` | 该类任务列表 → `#/task/<任务id>` 任务详情 |
+| `#/pipelines` → `#/pipelines/<图>` → `#/pipelines/<图>/<步骤>` | Pipeline 列表 → 结构图 → 单个步骤子页面 |
+| `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据图列表 → 血缘图 → 单份数据（地址/来源/用处/处理情况） |
+| `#/modules` → `#/modules/<id>` | 展示模块列表 → 模块详情 |
+
+完成一项记录后，告诉用户对应的页面地址（`http://<host>:<port>/#/task/<id>`），比口头描述更有用。
+
 ## 常见坑
 
 - `id` 只能含字母数字 `_ . -`，≤64 字符；节点引用格式是 `"<图id>/<节点id>"`。
@@ -76,3 +90,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 ## 修改看板本身时
 
 改 `static/*.js` 后至少检查：括号配平、`import/export` 名字一致；渲染文本一律经 `h()`/`s()`（`textContent`），**不要用 `innerHTML`**。动画依赖 `util.js` 的 `patch`（增量合并 + `data-key`），新增视图元素要给稳定的 `data-key`，否则无法平滑过渡。
+
+前端分层：`util.js`（DOM/patch/格式化）→ `graph.js`（布局与结构图）→ `views.js`（任务卡、节点详情、模块块）→ `pages.js`（路由与各子页面）→ `app.js`（取数、顶栏、轮询）。新增一个子页面：在 `pages.js` 的 `parseRoute` 加路由、写页面函数、在 `renderPage` 里分发。配色全部是 `style.css` 顶部的 CSS 变量（米黄基调），不要在 JS 里写死颜色。
+
+> 本 skill 的唯一副本在仓库的 `skills/status-board/`；`.codebuddy/skills/status-board` 是指向它的软链。改这里即可。
