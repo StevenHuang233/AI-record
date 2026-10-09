@@ -1,23 +1,43 @@
 {
-  "title": "示例：数据血缘与资产",
-  "description": "示例定义：节点是数据资产，箭头是加工关系。大小、条数等可手写在 meta，也可对本机目录开启 auto_stat 自动统计。",
+  "title": "示例：数据资产与血缘",
+  "description": "示例定义：节点是数据资产，箭头是加工关系（箭头上写加工过程）。\n每份数据记录：locations=存放地址（有备份就写多条，role=primary/backup/mirror…）、source=来源、purpose=用处、processing=被处理情况。\n在地址上加 \"auto_stat\": true 可由服务自动统计本机路径的实际大小，并校验主地址与备份是否一致。",
   "nodes": [
-    {"id": "raw",     "name": "原始语料", "kind": "raw",       "desc": "采集得到的原始样本，只读保存。",
-     "meta": {"storage": "共享盘A", "size_bytes": 2400000000, "count": 120000, "format": "jsonl", "version": "v1", "updated": "2026-10-01", "owner": "team-a"}},
-    {"id": "clean",   "name": "清洗后数据", "kind": "processed", "desc": "去重与过滤后的训练候选集。",
-     "meta": {"storage": "共享盘A", "size_bytes": 1800000000, "count": 69999, "format": "jsonl", "version": "v2", "updated": "2026-10-03"}},
-    {"id": "bench",   "name": "评测集", "kind": "external",  "desc": "公开评测集的本地副本。",
-     "meta": {"storage": "共享盘B", "size_bytes": 7400000000, "count": 15000, "format": "parquet", "version": "2026-09"}},
-    {"id": "labels",  "name": "模型标注结果", "kind": "derived", "status": "building", "desc": "由模型生成的参考答案，正在生成。",
-     "meta": {"storage": "本地盘", "size_bytes": 300000000, "count": 40000, "format": "jsonl", "version": "v1"}},
-    {"id": "weights", "name": "模型权重", "kind": "model",     "status": "pending", "desc": "训练产出，尚未生成。",
-     "meta": {"storage": "共享盘B", "format": "safetensors"}}
+    {"id": "raw", "name": "原始语料", "kind": "raw", "desc": "采集得到的原始样本，只读保存，不做修改。",
+     "source": "内部日志导出（2026-09 批次）", "purpose": "全部下游数据的起点，用于追溯与重新清洗",
+     "processing": ["未做任何处理，保持采集时原样", "已被「清洗过滤」读取一次（规则 v2）"],
+     "locations": [
+       {"label": "主", "role": "primary", "storage": "共享盘A", "path": "/data/demo/raw/corpus.jsonl", "verified": "2026-10-01"},
+       {"label": "异地备份", "role": "backup", "storage": "共享盘B", "path": "/backup/demo/raw/corpus.jsonl", "verified": "2026-10-01", "note": "每周日同步"}
+     ],
+     "meta": {"size_bytes": 2400000000, "count": 120000, "format": "jsonl", "version": "v1", "updated": "2026-10-01", "owner": "team-a"}},
+    {"id": "clean", "name": "清洗后数据", "kind": "processed", "desc": "去重与过滤后的训练候选集。",
+     "source": "由「原始语料」清洗得到", "purpose": "作为标注与训练的输入；也是统计数据质量的基准",
+     "processing": "精确去重 + 近似去重；过滤过短/乱码样本；保留率约 58%",
+     "locations": [{"label": "主", "role": "primary", "storage": "共享盘A", "path": "/data/demo/clean/train.jsonl"}],
+     "meta": {"size_bytes": 1800000000, "count": 69999, "format": "jsonl", "version": "v2", "updated": "2026-10-03"}},
+    {"id": "bench", "name": "评测集", "kind": "external", "desc": "公开评测集的本地副本。",
+     "source": "公开数据集（官方仓库下载）", "purpose": "只用于评测，严禁混入训练",
+     "processing": "未处理；仅按官方说明转换为统一格式",
+     "locations": [
+       {"label": "主", "role": "primary", "storage": "共享盘B", "path": "/data/demo/bench/test.parquet"},
+       {"label": "本地缓存", "role": "cache", "storage": "本地盘", "path": "/local/cache/bench/test.parquet"}
+     ],
+     "meta": {"size_bytes": 7400000000, "count": 15000, "format": "parquet", "version": "2026-09"}},
+    {"id": "labels", "name": "模型标注结果", "kind": "derived", "status": "building", "desc": "由模型生成的参考答案，正在生成。",
+     "source": "「清洗后数据」经多模型标注生成", "purpose": "作为微调的监督信号",
+     "processing": "按 8 个分片并行生成，失败样本自动重试",
+     "locations": [{"label": "主", "role": "primary", "storage": "本地盘", "path": "/local/demo/labels/"}],
+     "meta": {"size_bytes": 300000000, "count": 40000, "format": "jsonl", "version": "v1"}},
+    {"id": "weights", "name": "模型权重", "kind": "model", "status": "pending", "desc": "微调产出的权重，尚未生成。",
+     "source": "由「标注结果」微调基座模型得到", "purpose": "评测与上线候选",
+     "processing": "尚未生成",
+     "locations": [{"label": "主", "role": "primary", "storage": "共享盘B", "path": "/ckpt/demo/final/"}],
+     "meta": {"format": "safetensors"}}
   ],
   "edges": [
-    {"from": "raw", "to": "clean", "label": "清洗"},
+    {"from": "raw", "to": "clean", "label": "清洗去重"},
     {"from": "clean", "to": "labels", "label": "模型标注"},
-    {"from": "clean", "to": "weights", "label": "训练"},
-    {"from": "labels", "to": "weights"},
-    {"from": "bench", "to": "weights", "label": "评测"}
+    {"from": "labels", "to": "weights", "label": "微调"},
+    {"from": "bench", "to": "weights", "label": "评测对照"}
   ]
 }

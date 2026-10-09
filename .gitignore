@@ -4,7 +4,8 @@ __pycache__/
 .env
 .DS_Store
 
-# 运行时数据：任务进度与锁文件由上报自动生成
+# 运行时数据：任务进度、时间线事件日志与锁文件由上报自动生成，不入库
 state/tasks/
+state/timeline.jsonl
 state/.lock
 state/.tmp-*
