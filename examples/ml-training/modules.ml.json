@@ -1,6 +1,7 @@
 {
+  "_example": "ml-training",
   "title": "示例：效果展示与数据集抽样",
-  "description": "定制模块由若干「块」组成：heading / text / kv / metrics / table / chart / images / samples / compare / progress。块的写法见 SKILL.md。图片、音视频、jsonl 放在资源目录（默认 state/assets）。",
+  "description": "【范例】定制模块由若干「块」组成。图片、音视频、jsonl 放在资源目录，用相对路径引用。数字与文字都是虚构的。",
   "blocks": [
     {"type": "heading", "text": "本版效果"},
     {"type": "metrics", "items": [
@@ -11,12 +12,12 @@
     {"type": "chart", "kind": "bar", "title": "各学科准确率（v1 vs v2）", "labels": ["数学", "物理", "化学", "语文"],
      "series": [{"name": "v1", "values": [0.41, 0.33, 0.45, 0.52]}, {"name": "v2", "values": [0.49, 0.38, 0.5, 0.55]}], "max": 1},
     {"type": "heading", "text": "数据集抽样"},
-    {"type": "samples", "source": "demo_samples.jsonl", "limit": 3,
+    {"type": "samples", "source": "ml_samples.jsonl", "limit": 3,
      "fields": [{"label": "问题", "key": "question"}, {"label": "参考答案", "key": "answer", "type": "long"}]},
     {"type": "heading", "text": "前后对比"},
     {"type": "compare", "items": [{"title": "同一问题的回答对比", "sides": [
       {"label": "v1", "text": "答案是 3。"},
       {"label": "v2", "text": "先列方程 x + 1 = 4，移项得 x = 3，所以答案是 3。"}]}]},
-    {"type": "images", "columns": 2, "items": [{"src": "demo_a.png", "caption": "示例图 A"}, {"src": "demo_b.png", "caption": "示例图 B"}]}
+    {"type": "images", "columns": 2, "items": [{"src": "ml_a.png", "caption": "示例图 A"}, {"src": "ml_b.png", "caption": "示例图 B"}]}
   ]
 }

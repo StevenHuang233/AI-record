@@ -9,3 +9,6 @@ state/tasks/
 state/timeline.jsonl
 state/.lock
 state/.tmp-*
+
+# 范例播放用的临时状态目录
+examples/.play/

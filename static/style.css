@@ -247,3 +247,5 @@ a.ss { text-decoration: none; color: inherit; display: block; }
 .pnav a { color: var(--accent); text-decoration: none; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); } .pnav a:hover { border-color: var(--accent); }
 .panel.flat { border: 0; padding: 0; }
 .xlink.open { margin-left: 10px; font-size: 12.5px; }
+
+.tag.ex { background: #c28a1e26; color: var(--warn); border: 1px dashed var(--warn); }

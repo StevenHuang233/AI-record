@@ -9,7 +9,21 @@ python3 server.py                  # http://127.0.0.1:8765
 python3 server.py --host 0.0.0.0 --port 8765    # 对外监听前必须先 export SB_TOKEN=xxx，否则写接口关闭
 ```
 
-状态全部存放在 `state/`（`SB_STATE_DIR` 或 `--state-dir` 可改），实时模式每 2.5 秒轮询刷新。
+状态全部存放在 `state/`（`SB_STATE_DIR` 或 `--state-dir` 可改），实时模式每 2.5 秒轮询刷新。**新 clone 下来 `state/` 是空的**——看板上没有任何内容，直到你写入定义和任务；想先看效果，见下面的「范例」。
+
+```mermaid
+flowchart LR
+    subgraph W["写入方"]
+        L["脚本里 import sb"]
+        C["命令行 sb.py"]
+        R["远程机器 SB_URL"]
+    end
+    L --> S["state/<br/>pipelines · datasets · modules · tasks<br/>timeline.jsonl"]
+    C --> S
+    R -->|HTTP| V
+    S --> V["server.py"]
+    V --> P["网页：子页面 + 底部时间线"]
+```
 
 ## 页面结构（子页面嵌套，米黄色基调）
 
@@ -31,7 +45,7 @@ python3 server.py --host 0.0.0.0 --port 8765    # 对外监听前必须先 expor
 ```python
 import sb   # 本目录加入 sys.path，或直接拷贝 sb.py + sbstore.py
 
-sb.define("pipelines", "main", "main.json")        # 写 Pipeline 结构图（见 SKILL.md / references/schema.md）
+sb.define("pipelines", "main", "main.json")        # 写 Pipeline 结构图（字段见 skills/status-board/references/schema.md）
 sb.define("datasets", "main", "data.json")         # 写数据管理图
 sb.task("train1", kind="train", name="微调", pipeline="main", node="train",
         model={"name": "base-7b"}, datasets=[{"name": "训练集", "ref": "main/clean", "role": "训练集"}],
@@ -49,9 +63,20 @@ python3 sb.py -h          # 全部命令
 
 远程机器上报：设 `SB_URL=http://host:port`（可选 `SB_TOKEN`），同样的代码自动改走 HTTP。
 
+## 范例
+
+`examples/` 里有四个**形状各异**的范例（线性链、扇入+关卡+扇出、并行支线、带人工关卡的纯步骤流），内容全是虚构的，只用来对照字段写法，**不是模板**。
+
+```bash
+python3 examples/play.py                                     # 把四个范例模拟运行到一块临时看板（约 10 秒，只写 examples/.play/）
+python3 server.py --state-dir examples/.play/all --port 8766
+```
+
+范例带 `_example` 标记并统一用 `/example/` 占位路径：页面上会打「范例」标签，抄进真实 `state/` 后 `sb.py validate` 会报警。详见 [`examples/README.md`](examples/README.md)。
+
 ## 给 AI 用
 
-仓库自带 skill：`skills/status-board/`（`SKILL.md` + `references/schema.md`），`.codebuddy/skills/status-board` 是指向它的软链，所以 clone 仓库后在仓库内工作的 AI 会直接发现它。想让其他项目里的 AI 也能用：`cp -r skills/status-board ~/.codebuddy/skills/`。AI 读完就知道怎么记录训练、评测、流水线执行、数据资产和里程碑，以及写完后如何 `validate`。
+仓库自带 skill：`skills/status-board/`（`SKILL.md` + `references/schema.md` 字段格式 + `references/patterns.md` 流程形状与建模模式，流程类内容都用图表示），`.codebuddy/skills/status-board` 是指向它的软链，所以 clone 仓库后在仓库内工作的 AI 会直接发现它。想让其他项目里的 AI 也能用：`cp -r skills/status-board ~/.codebuddy/skills/`。AI 读完就知道怎么记录训练、评测、流水线执行、数据资产和里程碑，写完如何 `validate`，以及**怎么用范例而不被带偏**。
 
 ## 时间线是怎么来的
 
@@ -71,6 +96,7 @@ python3 sb.py -h          # 全部命令
 ```
 server.py    HTTP 服务 + 状态汇总 + 时间线回放     sb.py     上报库 / 命令行
 sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph views pages timeline app）
-state/       board.json pipelines/ datasets/ modules/ tasks/ assets/ timeline.jsonl
+state/       真实数据：board.json pipelines/ datasets/ modules/ tasks/ assets/ timeline.jsonl（新 clone 为空）
+examples/    范例（虚构内容）+ play.py 播放器；播放结果写在 examples/.play/（已忽略）
 skills/status-board/              给 AI 的使用说明（.codebuddy/skills/ 下有软链）
 ```

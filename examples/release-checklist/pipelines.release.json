@@ -1,0 +1,26 @@
+{
+  "_example": "release-checklist",
+  "title": "示例：服务发布流程（与数据无关的纯步骤流）",
+  "description": "【范例】不是所有流程都有数据资产。这里没有数据图，节点也没有 reads/writes，状态全靠 sb.node 手工置位 + 少量普通任务。拓扑特点：灰度之后有一个人工审批关卡。内容是虚构的，请勿照抄。",
+  "nodes": [
+    {"id": "build", "name": "构建", "kind": "process", "role": "编译并产出可部署的制品",
+     "desc": "固定依赖版本构建；产物带提交号与构建时间。", "inputs": "代码提交", "outputs": "制品包"},
+    {"id": "test", "name": "自动化测试", "kind": "gate", "role": "单测与集成测试全部通过才放行",
+     "desc": "失败用例会附在备注里；允许重试一次以排除偶发失败。", "inputs": "制品包", "outputs": "测试报告"},
+    {"id": "stage", "name": "预发部署", "kind": "process", "role": "把制品部署到预发环境",
+     "desc": "与线上同配置、不接真实流量。", "inputs": "制品包", "outputs": "预发实例"},
+    {"id": "canary", "name": "灰度发布", "kind": "process", "role": "放 5% 真实流量观察指标",
+     "desc": "观察错误率与延迟 30 分钟，任一超阈值自动回滚。", "inputs": "预发验证通过的制品", "outputs": "灰度指标"},
+    {"id": "approve", "name": "人工审批", "kind": "gate", "role": "负责人确认灰度指标后放行全量",
+     "desc": "审批人在备注里写明结论；未审批则流程停在这里。", "inputs": "灰度指标", "outputs": "审批结论"},
+    {"id": "rollout", "name": "全量发布", "kind": "output", "role": "分批把流量切到新版本",
+     "desc": "按 20%→50%→100% 分三批，每批之间留观察窗口。", "inputs": "审批结论", "outputs": "线上新版本"}
+  ],
+  "edges": [
+    {"from": "build", "to": "test"},
+    {"from": "test", "to": "stage"},
+    {"from": "stage", "to": "canary"},
+    {"from": "canary", "to": "approve"},
+    {"from": "approve", "to": "rollout", "label": "批准"}
+  ]
+}

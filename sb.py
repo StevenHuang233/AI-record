@@ -221,6 +221,8 @@ def main(argv=None) -> int:
 
     v = sub.add_parser("validate", help="体检：定义是否完整、引用是否有效")
     v.add_argument("--strict", action="store_true", help="有警告也返回非 0")
+    v.add_argument("--ignore-example", action="store_true", dest="ignore_example",
+                   help="不报「残留范例内容」（检查 examples/ 自身时用）")
     sub.add_parser("show", help="打印当前状态概览")
 
     a = ap.parse_args(argv)
@@ -255,7 +257,7 @@ def main(argv=None) -> int:
             if _remote():
                 print("validate 只能在状态目录所在机器上运行（不要设置 SB_URL）", file=sys.stderr)
                 return 1
-            res = store.lint()
+            res = store.lint(ignore_example=a.ignore_example)
             for lvl, msg in res:
                 print(("错误 " if lvl == "error" else "警告 ") + msg)
             ne = sum(1 for lvl, _ in res if lvl == "error")

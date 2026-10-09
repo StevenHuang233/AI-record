@@ -1,0 +1,13 @@
+{
+  "_example": "release-checklist",
+  "title": "示例：本次发布说明",
+  "description": "【范例】用最朴素的块写一页发布说明：文字、键值、指标。内容是虚构的。",
+  "blocks": [
+    {"type": "heading", "text": "变更概述"},
+    {"type": "text", "text": "本次发布包含登录流程的重构与两处缓存修复。灰度阶段重点观察登录成功率与接口延迟。"},
+    {"type": "kv", "items": [{"k": "版本", "v": "1.8.0"}, {"k": "发布窗口", "v": "工作日 10:00–12:00"}, {"k": "回滚方式", "v": "切回上一版本，约 2 分钟"}]},
+    {"type": "metrics", "items": [
+      {"label": "灰度错误率", "value": 0.12, "unit": "%", "delta": -0.03, "better": "lower"},
+      {"label": "P95 延迟", "value": 182, "unit": "ms", "delta": -9, "better": "lower"}]}
+  ]
+}

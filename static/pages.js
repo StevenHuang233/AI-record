@@ -8,7 +8,7 @@
 import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND } from "./util.js";
 import { S, findGraph } from "./store.js";
 import { orderedNodes, nodeSize } from "./graph.js";
-import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf } from "./views.js";
+import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
 import { TL } from "./timeline.js";
 
 const TASK_KINDS = ["train", "run", "eval", "job"];
@@ -91,7 +91,7 @@ function pipelineMini(g) {
   if (g.error) return h("div", { class: "card err", "data-key": "pm:" + g.id }, `${g.id}: ${g.error}`);
   const { prog, st, done } = graphProgress(g);
   return h("a", { class: "card mini", href: hrefOf("pipelines", g.id), "data-key": "pm:" + g.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), badge(st, NODE_ST)),
+    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), exTag(g), badge(st, NODE_ST)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(g.description || "（未填写说明）", 150)),
     nodeStrip(g),
     h("div", { class: "pct-row" }, bar(prog, st, { sm: true }), h("span", { class: "pct" }, fmtPct(prog))),
@@ -107,7 +107,7 @@ function datasetMini(g) {
   const total = g.nodes.reduce((a, n) => a + (nodeSize(n) || 0), 0), issues = dsIssues(g);
   const nLoc = g.nodes.reduce((a, n) => a + (n.locations || []).length, 0);
   return h("a", { class: "card mini", href: hrefOf("datasets", g.id), "data-key": "dm:" + g.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), issues ? h("span", { class: "badge st-failed" }, `${issues} 项异常`) : badge("ready", NODE_ST)),
+    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), exTag(g), issues ? h("span", { class: "badge st-failed" }, `${issues} 项异常`) : badge("ready", NODE_ST)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(g.description || "（未填写说明）", 150)),
     h("div", { class: "tags" }, g.nodes.slice(0, 8).map((n) => tag(n.name || n.id))),
     h("div", { class: "kv" }, h("span", {}, h("b", {}, `${g.nodes.length} 个数据资产`)), h("span", {}, "存放地址 ", h("b", {}, String(nLoc))), total ? h("span", {}, "已知总量 ", h("b", {}, fmtBytes(total))) : null));
@@ -117,7 +117,7 @@ function moduleMini(m) {
   if (m.error) return h("div", { class: "card err", "data-key": "mm:" + m.id }, `${m.id}: ${m.error}`);
   const types = [...new Set((m.blocks || []).map((b) => b.type))];
   return h("a", { class: "card mini", href: hrefOf("modules", m.id), "data-key": "mm:" + m.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, h("span", { class: "name" }, m.title || m.id)),
+    h("div", { class: "task-head" }, h("span", { class: "name" }, m.title || m.id), exTag(m)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(m.description || "（未填写说明）", 150)),
     h("div", { class: "tags" }, types.map((x) => tag(x))), h("div", { class: "kv" }, h("span", {}, h("b", {}, `${(m.blocks || []).length} 个展示块`))));
 }

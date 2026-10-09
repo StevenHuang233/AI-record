@@ -1,6 +1,7 @@
 {
+  "_example": "ml-training",
   "title": "示例：数据 → 训练 → 评测流水线",
-  "description": "这是一个示例定义，演示结构图的中文标注方式。替换或删除本文件即可换成你自己的 Pipeline。\n每个节点：role=一句话作用（直接显示在图上）、desc=详细说明、inputs/outputs=输入输出、reads/writes=读写的数据节点（\"数据图id/节点id\"）。\n节点状态由「带 pipeline+node 的任务」自动汇总；流水线执行任务里的数据要素会显示在对应步骤上。",
+  "description": "【范例】演示结构图的中文标注方式，内容是虚构的，请勿照抄。\n每个节点：role=一句话作用（直接显示在图上）、desc=详细说明、inputs/outputs=输入输出、reads/writes=读写的数据节点（\"数据图id/节点id\"）。\n节点状态由「带 pipeline+node 的任务」自动汇总；流水线执行任务里的数据要素会显示在对应步骤上。",
   "groups": [
     {"id": "prep", "name": "数据准备", "desc": "把原始数据变成可训练的样本", "nodes": ["collect", "clean", "label"]},
     {"id": "model", "name": "模型阶段", "desc": "训练并评测", "nodes": ["train", "eval"]},
@@ -9,19 +10,19 @@
   "nodes": [
     {"id": "collect", "name": "数据采集", "kind": "source", "role": "从原始来源拉取样本并落盘",
      "desc": "按来源清单批量拉取原始样本，统一保存为 jsonl，不做任何修改，作为后续所有步骤的可追溯起点。",
-     "inputs": "来源清单（URL / 日志路径）", "outputs": "原始语料 jsonl", "writes": ["demo/raw"]},
+     "inputs": "来源清单（URL / 日志路径）", "outputs": "原始语料 jsonl", "writes": ["ml/raw"]},
     {"id": "clean", "name": "清洗过滤", "kind": "process", "role": "去重、格式校验、丢弃不合格样本",
      "desc": "精确去重 + 近似去重；校验必填字段与图片是否存在；按规则过滤过短/乱码样本。过滤原因会记录在日志里。",
-     "inputs": "原始语料", "outputs": "清洗后数据（约 58%）", "reads": ["demo/raw"], "writes": ["demo/clean"]},
+     "inputs": "原始语料", "outputs": "清洗后数据（约 58%）", "reads": ["ml/raw"], "writes": ["ml/clean"]},
     {"id": "label", "name": "模型标注", "kind": "process", "role": "调用大模型生成参考答案",
      "desc": "多模型并行生成答案，可按分片并发；失败样本自动重试，三次失败则丢弃并记录。",
-     "inputs": "清洗后数据", "outputs": "带参考答案的标注结果", "reads": ["demo/clean"], "writes": ["demo/labels"]},
+     "inputs": "清洗后数据", "outputs": "带参考答案的标注结果", "reads": ["ml/clean"], "writes": ["ml/labels"]},
     {"id": "train", "name": "模型微调", "kind": "train", "role": "用标注数据微调基座模型，产出权重",
      "desc": "全参微调，ZeRO-2 多卡；每 200 步保存一次检查点，只保留最优权重。",
-     "inputs": "标注结果 + 基座权重", "outputs": "微调后权重", "reads": ["demo/labels"], "writes": ["demo/weights"]},
+     "inputs": "标注结果 + 基座权重", "outputs": "微调后权重", "reads": ["ml/labels"], "writes": ["ml/weights"]},
     {"id": "eval", "name": "评测打分", "kind": "eval", "role": "在评测集上推理并按官方口径打分",
      "desc": "在固定评测集上贪心解码，按官方 scorer 计算准确率；同时记录作答率，避免只看正确率。",
-     "inputs": "微调后权重 + 评测集", "outputs": "各项评测分数", "reads": ["demo/weights", "demo/bench"]},
+     "inputs": "微调后权重 + 评测集", "outputs": "各项评测分数", "reads": ["ml/weights", "ml/bench"]},
     {"id": "report", "name": "结果汇总", "kind": "output", "role": "汇总指标、生成对比报告",
      "desc": "把本次与历史版本的指标放在一起对比，写出结论与下一步建议。",
      "inputs": "评测分数", "outputs": "对比报告"}

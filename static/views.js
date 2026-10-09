@@ -11,6 +11,8 @@ const asArr = (x) => (Array.isArray(x) ? x : x == null || x === "" ? [] : [x]);
 /* ── 通用小部件 ───────────────────────────────────────────────────────────── */
 const tag = (txt, cls = "") => h("span", { class: `tag ${cls}` }, txt);
 const kvSpan = (k, v) => h("span", {}, k + " ", h("b", {}, v));
+/* 来自 examples/ 的范例内容（定义里带 _example 标记）：页面上显式标出，避免被当成真实数据 */
+export const exTag = (g) => (g && g._example ? h("span", { class: "tag ex", title: "来自 examples/ 的范例，内容是虚构的，请勿照抄" }, "范例") : null);
 const empty = (...kids) => h("div", { class: "empty" }, kids);
 const noteLine = (txt) => h("div", { class: "warn" }, txt);
 
@@ -299,7 +301,7 @@ export function pipelineCard(g) {
       badge(n.status, NODE_ST));
   }));
   return h("div", { class: "card", id: "pl-" + g.id, "data-key": "pl:" + g.id, "data-fade": 1 },
-    h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), badge(st, NODE_ST), h("span", { class: "kv" }, `${doneN} / ${g.nodes.length} 步完成`), bar(prog, st, { sm: true }), h("span", { class: "pct" }, fmtPct(prog))),
+    h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), exTag(g), badge(st, NODE_ST), h("span", { class: "kv" }, `${doneN} / ${g.nodes.length} 步完成`), bar(prog, st, { sm: true }), h("span", { class: "pct" }, fmtPct(prog))),
     g.description ? h("p", { class: "desc" }, g.description) : null,
     (g.groups || []).some((x) => x.nodes.length) ? h("div", { class: "grp-legend" }, g.groups.filter((x) => x.nodes.length).map((x, i) => h("span", { class: `gl gc-${i % 5}`, "data-key": "gg" + i }, h("b", {}, x.name), x.desc ? "：" + x.desc : ""))) : null,
     el, legend(NODE_ST, ["pending", "running", "done", "failed", "skipped"]),
@@ -334,7 +336,7 @@ export function datasetCard(g) {
       h("td", {}, m.version || "-"), h("td", {}, badge(n.status, NODE_ST)));
   });
   return h("div", { class: "card", id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
-    h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
+    h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
       issues.length ? h("span", { class: "badge st-failed" }, `${issues.length} 项异常`) : null, noLoc ? h("span", { class: "badge stale" }, `${noLoc} 项未记录地址`) : null),
     g.description ? h("p", { class: "desc" }, g.description) : null, el,
     h("div", { class: "legend" }, "图示：节点=数据资产，箭头=数据流向（箭头上的文字是加工过程），虚线流动=下游正在处理。点击节点查看地址、来源、用处和处理情况。"),
@@ -419,7 +421,7 @@ function blockEl(b, key) {
 
 export function moduleCard(m) {
   if (m.error) return h("div", { class: "card err", "data-key": "md:" + m.id }, `${m.id}: ${m.error}`);
-  return h("div", { class: "card", id: "md-" + m.id, "data-key": "md:" + m.id, "data-fade": 1 }, h("h3", {}, m.title || m.id), m.description ? h("p", { class: "desc" }, m.description) : null,
+  return h("div", { class: "card", id: "md-" + m.id, "data-key": "md:" + m.id, "data-fade": 1 }, h("h3", {}, m.title || m.id, " ", exTag(m)), m.description ? h("p", { class: "desc" }, m.description) : null,
     asArr(m.blocks).map((b, i) => {
       let el;
       try { el = blockEl(b, `${m.id}-${i}`); } catch (e) { el = h("div", { class: "err" }, `模块块渲染失败: ${e.message}`); }

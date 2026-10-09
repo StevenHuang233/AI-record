@@ -623,8 +623,22 @@ def define(coll: str, item_id: str, obj) -> dict:
 
 
 # ── 体检 ──────────────────────────────────────────────────────────────────────
-def lint() -> list:
-    """检查定义是否完整、引用是否有效。返回 [(level, message)]，level 为 error / warn。"""
+EXAMPLE_PATH_PREFIX = "/example/"      # 范例里的占位路径统一用这个前缀，真实数据不会出现
+
+
+def _has_example_path(o) -> bool:
+    if isinstance(o, str):
+        return o.startswith(EXAMPLE_PATH_PREFIX)
+    if isinstance(o, list):
+        return any(_has_example_path(x) for x in o)
+    if isinstance(o, dict):
+        return any(_has_example_path(v) for v in o.values())
+    return False
+
+
+def lint(ignore_example: bool = False) -> list:
+    """检查定义是否完整、引用是否有效。返回 [(level, message)]，level 为 error / warn。
+    ignore_example=True 时不报「残留范例内容」（用于检查 examples/ 自身）。"""
     out = []
 
     def add(level, msg):
@@ -640,6 +654,14 @@ def lint() -> list:
                 raw[c][iid] = o
             except (ValueError, OSError) as e:
                 add("error", f"{c}/{iid}.json 无法解析: {e}")
+    if not ignore_example:
+        for c in COLLS:
+            for iid, o in raw[c].items():
+                if o.get("_example"):
+                    add("warn", f"{c}/{iid}: 带有范例标记 _example——这是 examples/ 里的范例内容。"
+                                "真实项目请按项目事实重写，不要沿用范例的名称/数字/路径，并删除该标记")
+                elif _has_example_path(o):
+                    add("warn", f"{c}/{iid}: 含 {EXAMPLE_PATH_PREFIX} 开头的范例占位路径，请换成真实地址")
     nodes_of = {k: {gid: _node_map(g) for gid, g in raw[k].items()} for k in GRAPH_KINDS}
 
     def ref_ok(kind, ref):

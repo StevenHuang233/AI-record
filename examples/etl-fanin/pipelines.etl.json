@@ -1,0 +1,40 @@
+{
+  "_example": "etl-fanin",
+  "title": "示例：每日经营数据 ETL（多源汇入 → 质检 → 多路发布）",
+  "description": "【范例】拓扑特点：三个来源并行抽取后汇入同一步（扇入），质检之后分流到两个发布目标（扇出）。内容是虚构的，请勿照抄；你的流程有几个来源、几个出口，就画几个。",
+  "groups": [
+    {"id": "extract", "name": "抽取", "desc": "三个来源互相独立，可并行", "nodes": ["ex_orders", "ex_web", "ex_partner"]},
+    {"id": "publish", "name": "发布", "desc": "质检通过后分别写仓库和出报表", "nodes": ["load_wh", "report"]}
+  ],
+  "nodes": [
+    {"id": "ex_orders", "name": "抽取订单", "kind": "source", "role": "导出前一天的订单增量",
+     "desc": "按更新时间水位线从订单库导出增量，写入当日分区；水位线只在整步成功后才推进。",
+     "inputs": "订单库 + 上次水位线", "outputs": "当日订单增量", "writes": ["etl/raw_orders"]},
+    {"id": "ex_web", "name": "抽取访问日志", "kind": "source", "role": "拉取并解压前一天的访问日志",
+     "desc": "按小时分片拉取，每个分片校验行数后合并。",
+     "inputs": "日志服务", "outputs": "当日访问日志", "writes": ["etl/raw_web"]},
+    {"id": "ex_partner", "name": "抽取合作方文件", "kind": "source", "role": "取回合作方投递的 CSV",
+     "desc": "文件没到则本步标记为已跳过，不阻塞整体，但会在质检里提示缺失。",
+     "inputs": "合作方投递目录", "outputs": "当日合作方 CSV", "writes": ["etl/raw_partner"]},
+    {"id": "merge", "name": "合并对齐", "kind": "process", "role": "三路数据统一口径后合成一张宽表",
+     "desc": "统一时区与币种，按订单号关联访问来源，合作方数据按渠道码补充。",
+     "inputs": "三路原始数据", "outputs": "合并宽表", "reads": ["etl/raw_orders", "etl/raw_web", "etl/raw_partner"], "writes": ["etl/merged"]},
+    {"id": "dq_gate", "name": "质量校验", "kind": "gate", "role": "检查空值率与行数波动，不合格不放行",
+     "desc": "空值率超过阈值或行数相对昨日波动过大则整步失败；被剔除的记录单独保存，便于复盘。",
+     "inputs": "合并宽表", "outputs": "通过的宽表 + 被剔除记录", "reads": ["etl/merged"], "writes": ["etl/rejected"]},
+    {"id": "load_wh", "name": "写入仓库", "kind": "output", "role": "把通过校验的数据加载进仓库分区表",
+     "desc": "先写临时分区再原子切换；主、备两个仓库各写一份。",
+     "inputs": "通过校验的宽表", "outputs": "仓库分区表", "writes": ["etl/wh_table"]},
+    {"id": "report", "name": "生成日报", "kind": "output", "role": "汇总当日指标，生成日报文件",
+     "desc": "从仓库分区表出数，生成可分发的日报。",
+     "inputs": "仓库分区表", "outputs": "日报文件", "reads": ["etl/wh_table"], "writes": ["etl/daily_report"]}
+  ],
+  "edges": [
+    {"from": "ex_orders", "to": "merge"},
+    {"from": "ex_web", "to": "merge"},
+    {"from": "ex_partner", "to": "merge"},
+    {"from": "merge", "to": "dq_gate"},
+    {"from": "dq_gate", "to": "load_wh", "label": "通过"},
+    {"from": "load_wh", "to": "report"}
+  ]
+}

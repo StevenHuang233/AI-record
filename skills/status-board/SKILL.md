@@ -1,96 +1,171 @@
 ---
 name: status-board
-description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线，可动画回放变化。
+description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有四个形状各异的范例，只用来对照字段写法，不可照抄内容。
 ---
 
 # status-board
 
-`status_board` 是一个仅依赖 Python 标准库的看板：AI 或脚本把「做了什么、跑到哪了、数据在哪」写进状态目录，网页自动显示，并按时间线回放变化。仓库根目录即看板本体（`server.py`、`sb.py`、`sbstore.py`、`static/`、`state/`）。
+`status_board` 是只依赖 Python 标准库的看板：AI 或脚本把「做了什么、跑到哪了、数据在哪」写进状态目录，网页自动显示，并可在时间线上动画回放。仓库根目录就是看板本体。
+
+```mermaid
+flowchart LR
+    subgraph W["写入方"]
+        L["脚本里 import sb"]
+        C["命令行 sb.py"]
+        R["远程机器 SB_URL"]
+    end
+    L --> S["state/ 状态目录<br/>pipelines datasets modules tasks<br/>timeline.jsonl"]
+    C --> S
+    R -->|HTTP| V
+    S --> V["server.py"]
+    V --> P["网页：子页面 + 底部时间线"]
+```
 
 ## 核心原则
 
-1. **边做边记，不要事后补。** 开始一个任务就上报 `running`，结束时置 `done` / `failed`。用户靠看板了解进展，没记录等于没做。
-2. **只通过 `sb`（库或命令行）写状态**，不要手改 `state/tasks/`、`state/timeline.jsonl`。定义文件（`pipelines/ datasets/ modules/`）可用 `sb.define` 或直接改 JSON，服务会自动补记到时间线。
-3. **写完定义必须体检**：`python3 sb.py validate`。有「警告」就补全，目标是 0 错误 0 警告。
-4. **不要虚构数据。** 不知道的大小/条数/来源就不填，不要编；地址要真实可核对。路径只写事实，不写凭据。
-5. **上报失败不能拖垮业务**：库调用外层包 try，或用 `sb.track` / `sb.task` 的 safe 方式；看板没起不影响主任务。
+1. **边做边记，不要事后补。** 开始任务就上报 `running`，结束置 `done` / `failed`；用户靠看板了解进展，没记录等于没做。
+2. **内容只能来自真实项目。** 步骤、数据、地址、数字、阈值都以项目事实为准；不知道就不填，不要编。**不要从范例里取任何内容**（见下面「范例怎么用」）。
+3. **只通过 `sb`（库或命令行）写状态**，不手改 `state/tasks/`、`state/timeline.jsonl`。定义文件可用 `sb.define` 或直接改 JSON，服务会自动补记到时间线。
+4. **写完必须体检**：`python3 sb.py validate`，目标 0 错误 0 警告。
+5. **上报失败不能拖垮业务**：看板没起不影响主任务（`sb.track` 自带保护；自己调用时外层包 try）。
+6. 不把令牌/密钥写进任何定义、任务或 note。
 
-## 上手（3 步）
+## 范例怎么用（重点：别被范例带偏）
+
+`examples/` 里有四个范例，**拓扑、领域、上报手法都不同，内容全是虚构的**。它们回答的是「这个字段怎么写」，不回答「你的项目长什么样」。
+
+```mermaid
+flowchart TD
+    A["1 读真实项目<br/>列出真实的步骤 / 数据 / 地址 / 来源"] --> B["2 按 references/patterns.md<br/>判断流程是什么形状"]
+    B --> C{"字段写法不确定?"}
+    C -->|"是"| D["3 只打开对应形状的范例对照写法"]
+    C -->|"否"| E["4 直接用真实内容写定义"]
+    D --> E
+    E --> F["5 python3 sb.py validate"]
+    F -->|"有 _example / /example/ 警告"| G["还有范例内容没替换"]
+    G --> E
+    F -->|"通过"| H["完成"]
+```
+
+**该学的 / 不该抄的**
+
+| 可以从范例学 | 不可以从范例抄 |
+|---|---|
+| 字段名、结构、层级怎么写 | 标题、步骤名、节点 id、数据名 |
+| 一种形状怎么记录（扇入、并行支线、关卡…） | 节点数量、连线的具体走向（你的流程有几步就画几步） |
+| 失败/重试/跳过该如何表达 | 数字：条数、大小、阈值、版本号、进度 |
+| 副本地址写几条、`role` 怎么选 | 路径、存储名（`/example/…` 是占位，抄了 `validate` 会报警） |
+
+**自检**：写完后问自己两句——① 把定义里的名字全换成别的，结构还对吗？（对 = 学的是形状）② 有没有哪个步骤是「因为范例里有」才写的？（有 = 删掉）
+
+> 范例里**有意展示了不完美**（失败、被拒、跳过、重试），是在示范记法，不代表你的流程也该有。看效果：`python3 examples/play.py` 然后 `python3 server.py --state-dir examples/.play/all --port <端口>`。详见 `examples/README.md`。
+
+## 上手
 
 ```bash
 cd <仓库根>
-python3 server.py --port <空闲端口>        # 已有人在跑就不要重复启动；先 curl localhost:<端口>/healthz
-python3 sb.py show                          # 看当前有哪些 Pipeline / 数据图 / 任务
-python3 sb.py validate                      # 体检
+curl -s localhost:<端口>/healthz || python3 server.py --port <空闲端口>     # 已经有人在跑就别重复启动
+python3 sb.py show        # 当前有哪些 Pipeline / 数据图 / 任务
+python3 sb.py validate    # 体检
 ```
-
-脚本里：
 
 ```python
 import sys; sys.path.insert(0, "<仓库根>"); import sb
 ```
 
-远程机器上报：`export SB_URL=http://host:port`（可选 `SB_TOKEN`），同样的代码改走 HTTP。`validate` 只能在状态目录所在机器跑。
+远程上报：`export SB_URL=http://host:port`（可选 `SB_TOKEN`），同样的代码改走 HTTP。`validate` 只能在状态目录所在机器跑。
 
-## 你要记录什么 → 用什么
+## 记什么 → 怎么记
 
-| 要记录的事 | 做法 | 详见 |
+| 要记录的事 | 做法 | 字段详见 |
 |---|---|---|
-| Pipeline 每一步是什么、起什么作用 | `sb.define("pipelines", id, {...})`，每个节点写 `role`（一句话作用，直接显示在图上）+ `desc` | `references/schema.md` §1 |
-| 每份数据：在哪、什么意义 | `sb.define("datasets", id, {...})`：`locations`（**有备份必须写多条**）+ `source` + `purpose` + `processing` | §2 |
-| 模型训练 | `sb.task(id, kind="train", model=..., datasets=[...], hparams=..., ...)` + `sb.point(id,"loss",step,v)` | §3 |
-| Pipeline 执行（每个数据要素到哪一步） | `sb.task(id, kind="run", pipeline=...)` + `sb.item(id, 要素id, step=节点id, status=...)` | §4 |
-| 评测 | `sb.task(id, kind="eval", model=..., datasets=[评测集+地址], scores={...})` | §5 |
-| 迭代/版本节点 | `sb.milestone("v2 清洗规则升级", note="…")` | §6 |
-| 数据集展示、效果展示 | `sb.define("modules", id, {"blocks":[...]})` | §7 |
+| 流程每一步是什么、起什么作用 | `sb.define("pipelines", id, {...})`；每个节点写 `role`（一句话作用，直接显示在图上）+ `desc` | `references/schema.md` §1 |
+| 每份数据：在哪、什么意义 | `sb.define("datasets", id, {...})`：`locations`（**有几个副本写几条**）+ `source` + `purpose` + `processing` | §2 |
+| 模型训练 | `sb.task(id, kind="train", model=…, datasets=[…], hparams=…)` + `sb.point(id, "loss", step, v)` | §3 |
+| 流程执行（每个数据要素到哪一步） | `sb.task(id, kind="run", pipeline=…)` + `sb.item(id, 要素id, step=节点id, status=…)` | §4 |
+| 评测 | `sb.task(id, kind="eval", model=…, datasets=[评测集+地址], scores={…})` | §5 |
+| 迭代/版本节点 | `sb.milestone("标题", note="…")` | §6 |
+| 数据集展示、效果展示 | `sb.define("modules", id, {"blocks": […]})` | §7 |
 
 ## 标准工作流
 
-**A. 接手一个新项目（先建「地图」）**
-1. 读项目，列出流程步骤与数据资产。
-2. 写 Pipeline 定义：每个节点 `role`/`desc`/`inputs`/`outputs`，用 `reads`/`writes`（`"数据图id/节点id"`）把步骤与数据连起来；可用 `groups` 划分阶段。
-3. 写数据图定义：每份数据填 `locations`/`source`/`purpose`/`processing`，边上写加工过程（`label`）。本机路径加 `"auto_stat": true` 可自动统计大小并校验备份是否一致。
-4. `sb.milestone("初始化看板")`，然后 `python3 sb.py validate`。
+**A. 接手新项目：先建「地图」**
 
-**B. 跑任务（边跑边记）**
-1. 开始：`sb.task(id, kind=..., name=..., pipeline=..., node=..., model=..., datasets=[...], status="running", total=N)`。带上 `pipeline`+`node`，图上对应节点会自动联动。
-2. 过程中：节流上报（约每秒/每 N 步一次）：`sb.task(id, done=n)`；曲线用 `sb.point`；指标用 `metrics={...}`。长循环用 `for x in sb.track(it, id, ...)` 自动收尾。
-3. 结束：`sb.task(id, status="done")`（有 `total` 会自动补满）；异常 `status="failed", message="原因"`。
-4. 有版本意义的变化：`sb.milestone(...)`。
+```mermaid
+flowchart LR
+    A["读项目<br/>列步骤与数据"] --> B["写 pipelines 定义<br/>role / desc / reads / writes"]
+    B --> C["写 datasets 定义<br/>locations / source / purpose / processing"]
+    C --> D["sb.milestone 初始化"]
+    D --> E["sb.py validate"]
+    E -->|"有警告"| B
+    E -->|"通过"| F["告诉用户页面地址"]
+```
 
-**C. 数据发生变化（新增/迁移/加工/备份）**
-立刻更新数据图：改 `locations`、`processing`、`status`，或 `sb.node("datasets", gid, nid, status=..., meta={...})`。新增加工产物就加节点和边。**改动会自动进入时间线**，不要删历史、不要把旧信息直接抹掉而不留 `processing` 说明。
+**B. 跑任务：边跑边记**
 
-**D. 做效果展示/数据集展示** → 写 `modules` 定义（见 `references/schema.md` §7），资源放资源目录（默认 `state/assets/`，`SB_ASSETS_DIR` 可改），用相对路径引用。
+```mermaid
+flowchart TD
+    S["开始：sb.task(id, kind, pipeline, node, model, datasets,<br/>status=running, total=N)"] --> L{"还在跑?"}
+    L -->|"是"| U["节流上报：done / metrics / sb.point / sb.item"]
+    U --> L
+    L -->|"成功"| D["sb.task(id, status=done)"]
+    L -->|"出错"| F["sb.task(id, status=failed, message=原因)"]
+    D --> M{"有版本意义的变化?"}
+    F --> M
+    M -->|"是"| MS["sb.milestone(...)"]
+    M -->|"否"| E["结束"]
+    MS --> E
+```
 
-## 页面是子页面嵌套的（给用户汇报时可以直接给链接）
+带上 `pipeline` + `node`，图上对应节点会自动联动；长循环用 `for x in sb.track(it, id, …)` 自动收尾。
 
-看板是多级子页面，URL 用 hash，可分享、可前进后退：
+**C. 数据变了（新增 / 迁移 / 加工 / 备份）**
 
-| 地址 | 内容 |
-|---|---|
-| `#/` | 首页：各类入口、正在运行、需要关注、最近里程碑 |
-| `#/train` `#/run` `#/eval` | 该类任务列表 → `#/task/<任务id>` 任务详情 |
-| `#/pipelines` → `#/pipelines/<图>` → `#/pipelines/<图>/<步骤>` | Pipeline 列表 → 结构图 → 单个步骤子页面 |
-| `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据图列表 → 血缘图 → 单份数据（地址/来源/用处/处理情况） |
-| `#/modules` → `#/modules/<id>` | 展示模块列表 → 模块详情 |
+```mermaid
+flowchart LR
+    A["数据发生变化"] --> B{"变化类型"}
+    B -->|"新增加工产物"| C["加节点 + 加边（label 写加工过程）"]
+    B -->|"迁移 / 新增备份"| D["改 locations：保留旧地址说明，新增条目"]
+    B -->|"状态变化"| E["sb.node('datasets', 图, 节点, status=…)"]
+    C --> F["processing 补一句做了什么"]
+    D --> F
+    E --> F
+    F --> G["改动自动进入时间线"]
+```
 
-完成一项记录后，告诉用户对应的页面地址（`http://<host>:<port>/#/task/<id>`），比口头描述更有用。
+不要把旧信息直接抹掉而不留 `processing` 说明。
+
+**D. 做效果展示 / 数据集展示** → 写 `modules` 定义（`references/schema.md` §7）；图片、音视频、jsonl 放资源目录（默认 `state/assets/`，`SB_ASSETS_DIR` 可改），用相对路径引用。
+
+## 页面是子页面嵌套的
+
+汇报时直接给链接比口头描述有用：`http://<host>:<port>/#/task/<id>`。
+
+```mermaid
+flowchart LR
+    H["#/ 首页"] --> T["#/train · #/run · #/eval"]
+    T --> TD["#/task/id 任务详情"]
+    H --> PL["#/pipelines"] --> PD["#/pipelines/图"] --> PN["#/pipelines/图/步骤"]
+    H --> DL["#/datasets"] --> DD["#/datasets/图"] --> DN["#/datasets/图/资产"]
+    H --> ML["#/modules"] --> MD["#/modules/id"]
+    PN -.-> TD
+    DN -.-> TD
+```
 
 ## 常见坑
 
-- `id` 只能含字母数字 `_ . -`，≤64 字符；节点引用格式是 `"<图id>/<节点id>"`。
-- 流水线执行任务里**要素很多（>200）时不要逐个 `sb.item`**，改传汇总：`sb.task(id, step_counts={"clean":{"running":3,"done":120,"failed":1,"pending":40}})`。
-- 进度更新间隔：同一任务的普通进度每 60 秒才写入时间线一次（状态变化必写），不用担心刷屏；调试可设 `SB_EVENT_GAP=1`。
-- 任务超过 `stale_after`（默认 300s）没心跳会标「疑似停滞」。长耗时步骤要设大 `stale_after` 或定时心跳（`sb.task(id, message="…")`）。
-- 曲线每条最多 300 点（超出自动抽稀），`sb.point` 随便调。
-- 数据 `locations[].path` 在对外监听（`--host 0.0.0.0`）时默认不返回给浏览器。
-- 不要把令牌/密钥写进任何定义、任务或 note。
+- `id` 只能含字母数字 `_ . -`，≤64 字符；节点引用格式 `"<图id>/<节点id>"`。
+- 要素很多（>200）时不要逐个 `sb.item`，改传 `step_counts`（**整体替换**，每次传完整快照）；怎么选见 `references/patterns.md` P10。
+- 并行支线上的要素：把「要素 × 支线」各当一个要素（P4）。图里**不能有环**，「重试」的表达方式见 P6。
+- 同一任务的普通进度每 60 秒才写入时间线一次（状态变化必写）；调试可设 `SB_EVENT_GAP=1`。
+- `running` 超过 `stale_after`（默认 300s）无上报会标「疑似停滞」；长耗时步骤要设大 `stale_after` 或定时心跳。
+- 曲线每条最多 300 点（自动抽稀）；`datasets` 列表是**整体替换**（更新用量要传完整列表）。
+- 对外监听（`--host 0.0.0.0`）时，数据 `path` 默认不返回给浏览器，写接口需要 `SB_TOKEN`。
 
 ## 修改看板本身时
 
-改 `static/*.js` 后至少检查：括号配平、`import/export` 名字一致；渲染文本一律经 `h()`/`s()`（`textContent`），**不要用 `innerHTML`**。动画依赖 `util.js` 的 `patch`（增量合并 + `data-key`），新增视图元素要给稳定的 `data-key`，否则无法平滑过渡。
+改 `static/*.js` 后至少检查：括号配平、`import/export` 名字一致；渲染文本一律经 `h()`/`s()`（`textContent`），**不要用 `innerHTML`**。动画依赖 `util.js` 的 `patch`（增量合并 + `data-key`），新增视图元素要给稳定的 `data-key`。
 
-前端分层：`util.js`（DOM/patch/格式化）→ `graph.js`（布局与结构图）→ `views.js`（任务卡、节点详情、模块块）→ `pages.js`（路由与各子页面）→ `app.js`（取数、顶栏、轮询）。新增一个子页面：在 `pages.js` 的 `parseRoute` 加路由、写页面函数、在 `renderPage` 里分发。配色全部是 `style.css` 顶部的 CSS 变量（米黄基调），不要在 JS 里写死颜色。
+前端分层：`util.js`（DOM / patch / 格式化）→ `graph.js`（布局与结构图）→ `views.js`（任务卡、节点详情、模块块）→ `pages.js`（路由与各子页面）→ `app.js`（取数、顶栏、轮询）。新增子页面：在 `pages.js` 的 `parseRoute` 加路由、写页面函数、在 `renderPage` 分发。配色全部是 `style.css` 顶部的 CSS 变量（米黄基调），JS 里不写死颜色。
 
-> 本 skill 的唯一副本在仓库的 `skills/status-board/`；`.codebuddy/skills/status-board` 是指向它的软链。改这里即可。
+> 本 skill 的唯一副本在 `skills/status-board/`；`.codebuddy/skills/status-board` 是指向它的软链。
