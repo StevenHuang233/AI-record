@@ -207,6 +207,22 @@ try {
   ok("模块卡片里能放热力图和流转图", false, e.stack || e.message);
 }
 
+try {
+  const Tr2 = await import(join(dir, "transition.js"));
+  const V2 = await import(join(dir, "views.js"));
+  const tree = { type: "flow", no_threshold: true, threshold: 0, nodes: [{ id: "a", label: "A", col: 0, row: 0 }, { id: "b", label: "B", col: 1, row: 0 }],
+    edges: [{ from: "a", to: "b", w: 0.5, label: "28%", tip: "自定义提示" }], matrices: [] };
+  const M = Tr2.flowModel(tree, "x");
+  ok("流转图：边可以自带标签和提示", M.edges[0].label === "28%" && M.edges[0].tip === "自定义提示");
+  ok("流转图块：no_threshold 时不画阈值选项", all(Tr2.flowBlock(tree, "md-t")).filter((n) => n.attrs && n.attrs["data-act"] === "blopt").length === 0);
+  const g = { id: "g", nodes: [], groups: [], edges: [] };
+  const node = { id: "n", name: "步骤", blocks: [{ type: "text", text: "逻辑树说明" }, tree] };
+  const el = V2.pipeNodeDetail(g, node, true);
+  ok("Pipeline 步骤详情：步骤里的展示块被渲染", texts(el).includes("逻辑树说明") && all(el).some((n) => n.tag === "svg"));
+} catch (e) {
+  ok("流转图自带标签 / 步骤内展示块", false, e.stack || e.message);
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(fails ? `\n${fails} 项失败` : "\n全部通过");
 process.exit(fails ? 1 : 0);

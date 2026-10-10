@@ -231,6 +231,9 @@ export function pipeNodeDetail(g, n, nav) {
     field("所属阶段", groups.length ? groups.map((x) => tag(x)) : null),
     field("读取的数据", n.reads ? refLinks("datasets", n.reads) : null), field("写入的数据", n.writes ? refLinks("datasets", n.writes) : null),
     n.note ? field("备注", n.note) : null,
+    asArr(n.blocks).map((b, i) => h("div", { class: "blk", "data-key": "nb" + i }, (() => {
+      try { return blockEl(b, `${g.id}-${n.id}-${i}`); } catch (e) { return h("div", { class: "err" }, `步骤内的展示块渲染失败: ${e.message}`); }
+    })())),
     n.progress != null ? h("div", { class: "pct-row" }, bar(n.progress, n.status, { sm: true }), h("span", { class: "pct" }, fmtPct(n.progress))) : null,
     it ? field("数据要素", `处理中 ${it.running} · 已完成本步 ${it.done} · 失败 ${it.failed} · 排队 ${it.pending} · 已流转到后续步骤 ${it.passed}（总 ${it.total}）`) : null,
     tasks.length ? field("关联任务", tasks.map((t) => h("div", { class: "pct-row", "data-key": "lt:" + t.id },

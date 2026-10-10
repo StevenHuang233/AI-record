@@ -61,7 +61,51 @@ export function heatmapModel(b, tabId, show = "p") {
 }
 
 /* ── 流转图几何 ───────────────────────────────────────────────────────────── */
+/* 自由布局：节点给中心坐标 cx / cy（环形、力导向之类的图）。边从节点边框出发、画成二次曲线；
+   互为反向的两条边各弯向自己行进方向的一侧，所以不会叠在一起；自环画在远离图中心的一侧。 */
+function freeFlowModel(b, tabId) {
+  const NW = 118, NH = 30, PAD = 40, thr = typeof b.threshold === "number" ? b.threshold : 0.02;
+  const raw = asArr(b.nodes);
+  const x0 = Math.min(...raw.map((n) => n.cx)) - NW / 2, y0 = Math.min(...raw.map((n) => n.cy)) - NH / 2;
+  const nodes = raw.map((n) => ({ ...n, w: NW, h: NH, x: n.cx - NW / 2 - x0 + PAD, y: n.cy - NH / 2 - y0 + PAD }));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const ctr = (n) => [n.x + n.w / 2, n.y + n.h / 2];
+  const mid = [nodes.reduce((a, n) => a + ctr(n)[0], 0) / nodes.length, nodes.reduce((a, n) => a + ctr(n)[1], 0) / nodes.length];
+  const edge = (n, toward) => {                       // 从 n 的中心朝 toward 方向射线，与矩形边框的交点
+    const [cx, cy] = ctr(n), dx = toward[0] - cx, dy = toward[1] - cy;
+    const t = Math.min(dx ? (n.w / 2) / Math.abs(dx) : Infinity, dy ? (n.h / 2) / Math.abs(dy) : Infinity);
+    return [cx + dx * t, cy + dy * t];
+  };
+  const bendOf = typeof b.curve === "number" ? b.curve : 0.16;
+  const edges = [];
+  asArr(b.edges).forEach((e, k) => {
+    const A = byId.get(e.from), B = byId.get(e.to);
+    if (!A || !B) return;
+    const p = e.w && typeof e.w === "object" ? Number(e.w[tabId] || 0) : Number(e.w || 0);
+    let d, lx, ly;
+    if (A === B) {
+      const [cx, cy] = ctr(A), up = cy <= mid[1], sgn = up ? -1 : 1, yy = cy + sgn * A.h / 2, h = 46;
+      d = `M${cx + 14},${yy} C${cx + 38},${yy + sgn * h} ${cx - 38},${yy + sgn * h} ${cx - 14},${yy}`;
+      lx = cx; ly = yy + sgn * (h * 0.75 + (up ? -2 : 11));
+    } else {
+      const ca = ctr(A), cb = ctr(B), dx = cb[0] - ca[0], dy = cb[1] - ca[1], L = Math.hypot(dx, dy) || 1;
+      const c = [(ca[0] + cb[0]) / 2 - dy / L * L * bendOf, (ca[1] + cb[1]) / 2 + dx / L * L * bendOf];
+      const a = edge(A, c), z = edge(B, c);
+      d = `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${c[0].toFixed(1)},${c[1].toFixed(1)} ${z[0].toFixed(1)},${z[1].toFixed(1)}`;
+      const t = e.lt ?? 0.3;
+      lx = (1 - t) * (1 - t) * a[0] + 2 * (1 - t) * t * c[0] + t * t * z[0];
+      ly = (1 - t) * (1 - t) * a[1] + 2 * (1 - t) * t * c[1] + t * t * z[1] - 4;
+    }
+    edges.push({ k, from: e.from, to: e.to, p, d, lx, ly, self: A === B, dashed: p <= 0, shown: p >= thr,
+      width: p <= 0 ? 1 : +(1 + 6 * Math.sqrt(p)).toFixed(2), label: e.label ?? (p > 0 ? p.toFixed(2) : ""),
+      tip: e.tip ?? `${A.label} → ${B.label}：${p > 0 ? (p * 100).toFixed(1) + "%" : "规则允许，当前数据里没有"}${e.note ? "\n" + e.note : ""}` });
+  });
+  const width = Math.max(...nodes.map((n) => n.x + n.w)) + PAD, height = Math.max(...nodes.map((n) => n.y + n.h)) + PAD + 24;
+  return { nodes, groups: [], edges, phases: [], width, height, threshold: thr, NW, NH };
+}
+
 export function flowModel(b, tabId) {
+  if (b.layout === "free") return freeFlowModel(b, tabId);
   const NW = 138, NH = 32, COLW = 214, ROWH = 52, PADX = 34, PADY = 108, GP = 14;
   const nodes = asArr(b.nodes).map((n) => ({ ...n, w: NW, h: NH, x: PADX + (n.col || 0) * COLW, y: PADY + (n.row || 0) * ROWH }));
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -113,7 +157,7 @@ export function flowModel(b, tabId) {
     }
     return { k, from: e.from, to: e.to, p, d, lx, ly, self, dashed: p <= 0, shown: p >= thr,
       width: p <= 0 ? 1 : +(1.2 + 6 * Math.sqrt(p)).toFixed(2),
-      label: p > 0 ? p.toFixed(2) : "", tip: `${A.label} → ${B.label}：${p > 0 ? (p * 100).toFixed(1) + "%" : "规则允许，当前数据里没有"}${e.note ? "\n" + e.note : ""}` };
+      label: e.label ?? (p > 0 ? p.toFixed(2) : ""), tip: e.tip ?? `${A.label} → ${B.label}：${p > 0 ? (p * 100).toFixed(1) + "%" : "规则允许，当前数据里没有"}${e.note ? "\n" + e.note : ""}` };
   });
   const phases = asArr(b.phases).map((ph) => ({ ...ph, x: PADX + (ph.col || 0) * COLW + NW / 2 }));
   return { nodes, groups, edges, phases, width, height, threshold: thr, NW, NH };
@@ -191,8 +235,9 @@ export function flowBlock(b, key) {
   const tab = pickTab(b, key);
   const thr = Number(S.sel[`${key}#thr`] ?? b.threshold ?? 0.02);
   const controls = [asArr(b.matrices).length > 1 ? tabBar(b, key, tab) : null,
-    h("div", { class: "views", "data-key": "thr" }, h("span", { class: "id" }, "只标出概率 ≥ "),
-      [0, 0.02, 0.05, 0.1, 0.2].map((v) => optBtn(key, "thr", v, thr, v === 0 ? "全部" : v.toFixed(2))))];
+    b.no_threshold ? null : h("div", { class: "views", "data-key": "thr" }, h("span", { class: "id" }, "只标出概率 ≥ "),
+      asArr(b.thresholds).length ? asArr(b.thresholds).map((v) => optBtn(key, "thr", v, thr, v === 0 ? "全部" : v.toFixed(2)))
+        : [0, 0.02, 0.05, 0.1, 0.2].map((v) => optBtn(key, "thr", v, thr, v === 0 ? "全部" : v.toFixed(2))))];
   return shell(b, key, controls, flowSvg(b, tab, thr, key));
 }
 
