@@ -1,6 +1,6 @@
 # status_board
 
-通用、可移植的状态看板：**Pipeline 结构图（节点带中文作用标注）**、**数据管理图（多地址 + 来源/用处/处理情况）**、**进程记录（训练 / 流水线执行 / 评测）**、**定制展示模块**，并用**时间线**回放变化过程（以动画过渡而非直接切换）。
+通用、可移植的状态看板：**Pipeline 结构图（节点带中文作用标注）**、**数据管理图（多地址 + 来源/用处/处理情况，节点可带一句话说明、可按分组归类）**、**进程记录（训练 / 流水线执行 / 评测）**、**定制展示模块**，并用**时间线**回放变化过程（以动画过渡而非直接切换）。
 
 只依赖 Python 3.8+ 标准库，前端无 CDN、无构建步骤，整个目录拷走即可用。
 
@@ -87,7 +87,7 @@ flowchart LR
 import sb   # 本目录加入 sys.path，或直接拷贝 sb.py + sbstore.py
 
 sb.define("pipelines", "main", "main.json")        # 写 Pipeline 结构图（字段见 skills/status-board/references/schema.md）
-sb.define("datasets", "main", "data.json")         # 写数据管理图
+sb.define("datasets", "main", "data.json")         # 写数据管理图（数据多时用 groups 分组、节点写 brief）
 sb.task("train1", kind="train", name="微调", pipeline="main", node="train",
         model={"name": "base-7b"}, datasets=[{"name": "训练集", "ref": "main/clean", "role": "训练集"}],
         status="running", done=10, total=1000, unit="step")

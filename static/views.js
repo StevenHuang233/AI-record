@@ -274,6 +274,7 @@ export function dataNodeDetail(g, n, nav) {
     h("div", {}, h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
       n.replica ? h("span", { class: `badge rep-${n.replica}`, style: { marginLeft: "6px" } }, REPLICA[n.replica]) : null,
       nav ? null : h("a", { class: "xlink open", href: hrefOf("datasets", `${g.id}/${n.id}`) }, "打开数据子页面 →")),
+    n.brief ? h("div", { class: "kv brief", "data-key": "brief" }, n.brief) : null,
     field("含义", n.desc), field("来源", n.source), field("用处", n.purpose),
     field("被处理情况", lines.length ? h("ul", { class: "bul" }, lines.map((x, i) => h("li", { "data-key": "pl" + i }, x))) : noteLine("未记录被处理情况（请填写 processing）")),
     h("div", { class: "fld" }, h("div", { class: "fk" }, `存放地址（${locs.length} 个）`), locTable),
@@ -329,7 +330,8 @@ export function datasetCard(g) {
   const rows = order.map((i) => {
     const n = g.nodes[i], m = n.meta || {}, sz = nodeSize(n);
     return h("tr", { class: `click ${n.id === sel ? "sel" : ""}`, "data-key": "dr:" + n.id, "data-act": "selnode", "data-a1": key, "data-a2": n.id, role: "button", tabindex: 0 },
-      h("td", {}, h("b", {}, n.name || n.id)), h("td", {}, DATA_KIND[n.kind] || n.kind || "-"),
+      h("td", {}, h("b", {}, n.name || n.id), n.brief ? h("div", { class: "id" }, clip(n.brief, 60)) : null),
+      h("td", {}, DATA_KIND[n.kind] || n.kind || "-"),
       h("td", {}, (n.locations || []).length ? `${n.locations.length} 个` : "未记录", n.replica ? [" ", h("span", { class: `badge rep-${n.replica}` }, REPLICA[n.replica])] : null),
       h("td", { class: "num" }, sz != null ? [fmtBytes(sz), " ", h("span", { class: "sizebar", style: { width: Math.max(2, 60 * sz / maxSz) + "px" } })] : "-"),
       h("td", { class: "num" }, m.count != null ? `${fmtNum(m.count)} ${m.count_unit || "条"}` : "-"),
@@ -338,7 +340,9 @@ export function datasetCard(g) {
   return h("div", { class: "card", id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
     h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
       issues.length ? h("span", { class: "badge st-failed" }, `${issues.length} 项异常`) : null, noLoc ? h("span", { class: "badge stale" }, `${noLoc} 项未记录地址`) : null),
-    g.description ? h("p", { class: "desc" }, g.description) : null, el,
+    g.description ? h("p", { class: "desc" }, g.description) : null,
+    (g.groups || []).some((x) => x.nodes.length) ? h("div", { class: "grp-legend" }, g.groups.filter((x) => x.nodes.length).map((x, i) => h("span", { class: `gl gc-${i % 5}`, "data-key": "gg" + i }, h("b", {}, x.name), x.desc ? "：" + x.desc : ""))) : null,
+    el,
     h("div", { class: "legend" }, "图示：节点=数据资产，箭头=数据流向（箭头上的文字是加工过程），虚线流动=下游正在处理。点击节点查看地址、来源、用处和处理情况。"),
     legend(NODE_ST, ["ready", "building", "stale", "missing", "failed"]),
     stores.length ? h("div", { class: "mt" }, h("div", { class: "kv" }, "主存储位置占比"),

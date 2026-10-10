@@ -1221,6 +1221,11 @@ def lint(ignore_example: bool = False) -> list:
                         if not ref_ok("datasets", r):
                             add("warn", f"{nt}: reads/writes 引用的数据节点不存在: {r}")
                 else:
+                    if not n.get("brief"):
+                        grp = next((x.get("name") for x in (g.get("groups") or [])
+                                    if n["id"] in (x.get("nodes") or [])), None)
+                        add("warn", f"{nt}: 缺少 brief（一句话说明这份数据是什么 / 有多少，会直接显示在结构图节点上"
+                                    f"{'、分组「' + grp + '」里' if grp else ''}）")
                     locs = n.get("locations")
                     if not isinstance(locs, list) or not locs:
                         add("warn", f"{nt}: 缺少 locations（数据存放地址；有备份要写多个）")

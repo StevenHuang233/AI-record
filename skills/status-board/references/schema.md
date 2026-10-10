@@ -29,8 +29,10 @@
 ```json
 {
   "title": "...", "description": "...",
+  "groups": [{"id": "raw", "name": "原始", "desc": "分组说明", "nodes": ["raw1", "raw2"]}],
   "nodes": [{
-    "id": "raw", "name": "原始语料", "kind": "raw", "status": "ready",
+    "id": "raw", "name": "原始语料", "kind": "raw", "status": "ready", "group": "raw",
+    "brief": "一句话说明这份数据是什么、有多少（显示在结构图节点上）",
     "desc": "含义：这份数据是什么",
     "source": "来源：从哪来、什么时候、谁给的",
     "purpose": "用处：拿来做什么，有什么限制（如严禁混入训练）",
@@ -46,6 +48,10 @@
 ```
 
 - `kind`：`raw processed derived external model`；`status`：`ready building stale missing failed`。
+- **`groups`（和 Pipeline 同格式，可选）**：`[{"id","name","desc","nodes"}]`。数据多的时候用它分类（例如「原始 / 中间产物 / 发布版本」），
+  结构图上按分组框起来并画分组图例，节点详情里也会显示所属分组。`nodes` 必须写节点 id 列表；不属于任何分组的节点照常显示。
+  分组只是显示用的归类，**不参与布局分层**（分层仍由 `edges` 决定）。
+- **`brief`（推荐）**：一句话说明这份数据是什么、有多少，直接显示在结构图节点上和资产清单里；`desc` 仍是完整说明「含义」。缺 `brief` 会报体检警告。
 - **地址是核心**：`locations` 每条必须有 `path`；`role`：`primary backup mirror remote cache`。**有双地址/多副本就写多条**。
 - `auto_stat: true`（在某条 location 上，路径须是**服务所在机器**可访问的绝对路径）：后台统计实际大小与文件数，缓存 5 分钟；主地址不存在则节点置 `missing`；≥2 个地址都统计完成时自动比对大小+文件数，显示「副本一致 / 不一致」。
 - `processing` 可写字符串列表，或 `{"step":"清洗","desc":"…","to":"clean"}`。页面还会自动合并「图上的入边/出边」和「Pipeline 里 reads/writes 它的步骤」，所以只需补充图和 Pipeline 表达不了的内容。
