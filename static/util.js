@@ -178,15 +178,17 @@ export function bar(p, status, o = {}) {
    收起状态按 key 存在浏览器本地（localStorage），刷新页面后保持；默认全部展开。 */
 const FOLD_KEY = "sb_fold";
 const FOLD = (() => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (e) { return new Set(); } })();
-export const isFolded = (key) => FOLD.has(key);
+/* defClosed=true：这个 key 默认是收起的（比如数据的历史版本）。此时集合里存的是「被用户展开过的」key，
+   对调用方透明：isFolded / foldBtn / foldBody 都照常用，只是多传一个 true。 */
+export const isFolded = (key, defClosed = false) => (defClosed ? !FOLD.has(key) : FOLD.has(key));
 export function toggleFold(key) {
   if (FOLD.has(key)) FOLD.delete(key); else FOLD.add(key);
   try { localStorage.setItem(FOLD_KEY, JSON.stringify([...FOLD].slice(-200))); } catch (e) { /* 存不了就只在本次页面有效 */ }
 }
-export function foldBtn(key) {
-  const closed = FOLD.has(key);
+export function foldBtn(key, defClosed = false) {
+  const closed = isFolded(key, defClosed);
   return h("button", { class: "fold", "data-act": "fold", "data-a1": key, "data-key": "fold:" + key,
                        title: closed ? "展开" : "收起", "aria-expanded": closed ? "false" : "true" }, closed ? "▸" : "▾");
 }
 /* 收起时返回 null，展开时原样返回内容：h("div", ..., head, foldBody(key, [正文...])) */
-export const foldBody = (key, kids) => (FOLD.has(key) ? null : kids);
+export const foldBody = (key, kids, defClosed = false) => (isFolded(key, defClosed) ? null : kids);

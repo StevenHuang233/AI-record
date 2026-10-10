@@ -33,6 +33,7 @@
   "groups": [{"id": "raw", "name": "原始", "desc": "分组说明", "nodes": ["raw1", "raw2"]}],
   "nodes": [{
     "id": "raw", "name": "原始语料", "kind": "raw", "status": "ready", "group": "raw",  // 顶层可选 layout: "list"
+    "family": "同一份数据的所有版本写同一个值", "version": "v2.0",   // 可选：同一份数据有多个版本时用，见下方「多个版本」
     "brief": "一句话说明这份数据是什么、有多少（显示在结构图节点上）",
     "desc": "含义：这份数据是什么",
     "source": "来源：从哪来、什么时候、谁给的",
@@ -53,6 +54,10 @@
   结构图上按分组框起来并画分组图例，节点详情里也会显示所属分组。`nodes` 必须写节点 id 列表；不属于任何分组的节点照常显示。
   分组只是显示用的归类，**不参与布局分层**（分层仍由 `edges` 决定）。
 - **`brief`（推荐）**：一句话说明这份数据是什么、有多少，直接显示在结构图节点上和资产清单里；`desc` 仍是完整说明「含义」。缺 `brief` 会报体检警告。
+- **多个版本（`family` + `version`，可选）**：同一份数据有 v1.0、v2.0 这样的迭代时，**每个版本各建一个节点**，写同一个 `family`（≤40 字）、各自的 `version`（字符串，≤20 字，写成数字会被拒绝）。
+  清单里该份数据只显示**最新版**，历史版本收在「▸ 历史版本 N 个」按钮后面（默认收起，点选历史版本时自动展开）；详情页有「所有版本」可跳转。
+  最新版 = 版本号里数字段逐段比最大的（`v1.10` > `v1.9`）；有版本号不含数字时退回「列表里靠后的算新」。关系图**不收纳**，每个版本仍是一个节点，第二行带版本号。
+  体检会抓：缺 `version`、`family` 只有 1 个节点、版本号重复、版本号不含数字。何时该用、怎么连线见 `patterns.md` P8b。
 - **`layout`（可选）**：`"graph"`（默认）画成关系图；`"list"` 不画图，改成**按 `groups` 分组的模块化清单**——一组一块，块里是表格，
   表头带一句话说明。数据几十份时关系图会挤成一团，用 `"list"` 更清楚。页面上随时可以切换，这个字段只是决定默认用哪种。
   用了 `"list"` 却没写 `groups` 时，全部资产归到「未分组」一块。
@@ -384,7 +389,7 @@ python3 sb.py validate [--strict]
 
 ## 9. 体检 `validate` 检查什么
 
-JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`name` 超过 11 个汉字或 `role` 超过 17 个汉字（图上会被截断）、`kind` 不在 7 个合法值里、同一节点属于多个分组、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；资源池缺 `desc/owner/secret_ref/expires` 等（见 §7c）；**状态目录里任何文件出现疑似密钥（错误）**；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
+JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`name` 超过 11 个汉字或 `role` 超过 17 个汉字（图上会被截断）、`kind` 不在 7 个合法值里、同一节点属于多个分组、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`、`family` 缺 `version` / 只有 1 个节点 / 版本号重复 / 版本号不含数字；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；资源池缺 `desc/owner/secret_ref/expires` 等（见 §7c）；**状态目录里任何文件出现疑似密钥（错误）**；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
 
 ## 10. 服务与安全
 

@@ -251,6 +251,18 @@ function processingLines(p) {
   return asArr(p).map((x) => (typeof x === "string" ? x : x && typeof x === "object" ? `${x.step ? x.step + "：" : ""}${x.desc || ""}${x.to ? "（→ " + x.to + "）" : ""}` : String(x)));
 }
 
+/* 同一份数据的所有版本（最新在前），当前这一个不可点；只有一个版本时不显示 */
+function versionsField(g, n) {
+  if (typeof n.family !== "string" || !n.family) return null;
+  const sibs = sortVersions(g.nodes.filter((x) => x.family === n.family));
+  if (sibs.length < 2) return null;
+  return field("所有版本", h("div", { class: "vlist" }, sibs.map((x, i) => [
+    x.id === n.id
+      ? h("span", { class: "vcur", "data-key": "v:" + x.id }, `${versionOf(x) || x.name || x.id}（当前）`)
+      : h("a", { class: "xlink", href: hrefOf("datasets", `${g.id}/${x.id}`), "data-key": "v:" + x.id }, versionOf(x) || x.name || x.id),
+    i === 0 ? h("span", { class: "tag vlatest", "data-key": "vl" }, "最新") : null])));
+}
+
 export function dataNodeDetail(g, n, nav) {
   if (!n) return h("div", { class: "panel", "data-key": "detail" }, h("h4", {}, "数据详情"), h("span", { class: "desc" }, "点击图中的数据资产或右侧清单，查看它的含义、来源、用处、存放地址和被处理情况。"));
   const ref = `${g.id}/${n.id}`, m = n.meta || {};
@@ -282,11 +294,12 @@ export function dataNodeDetail(g, n, nav) {
   const rows = Object.entries(m).filter(([k, v]) => !META_HIDE.has(k) && v != null && v !== "");
   const dk = `dn:${g.id}/${n.id}`;
   return h("div", { class: (nav ? "panel flat" : "panel") + (isFolded(dk) ? " folded" : ""), "data-key": "detail" }, nav ? null : h("h4", {}, "数据详情"),
-    h("div", {}, foldBtn(dk), h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
+    h("div", {}, foldBtn(dk), h("span", { class: "ttl" }, n.name || n.id), versionOf(n) ? tag(versionOf(n), "ver") : null, badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
       n.replica ? h("span", { class: `badge rep-${n.replica}`, style: { marginLeft: "6px" } }, REPLICA[n.replica]) : null,
       nav ? null : h("a", { class: "xlink open", href: hrefOf("datasets", `${g.id}/${n.id}`) }, "打开数据子页面 →")),
     n.brief ? h("div", { class: "kv brief", "data-key": "brief" }, n.brief) : null,         // 收起后只剩这一句话：它就是摘要
     isFolded(dk) ? null : [
+    versionsField(g, n),
     field("含义", n.desc), field("来源", n.source), field("用处", n.purpose),
     field("被处理情况", lines.length ? h("ul", { class: "bul" }, lines.map((x, i) => h("li", { "data-key": "pl" + i }, x))) : noteLine("未记录被处理情况（请填写 processing）")),
     h("div", { class: "fld" }, h("div", { class: "fk" }, `存放地址（${locs.length} 个）`), locTable),
@@ -323,15 +336,69 @@ export function pipelineCard(g) {
 }
 
 /* 一行数据资产（清单视图和分组模块共用） */
-function assetRow(g, n, sel, key, maxSz) {
+/* ── 数据的多个版本：同一个 family 的节点在清单里收纳成「最新版 + 可展开的历史版本」 ─────────────
+   版本号比较：取字符串里所有数字段逐段比（"v1.10" > "v1.9" > "v1.0"）；任何一个没有数字，就退回「列表里靠后的算新」。 */
+const verNums = (v) => (String(v ?? "").match(/\d+/g) || []).map(Number);
+export function versionOf(n) { return n.version != null && n.version !== "" ? String(n.version) : (n.meta && n.meta.version != null ? String(n.meta.version) : ""); }
+export function sortVersions(nodes) {
+  const keys = nodes.map((n) => verNums(versionOf(n)));
+  const comparable = keys.every((k) => k.length > 0);
+  const idx = new Map(nodes.map((n, i) => [n, i]));
+  const cmp = (a, b) => {
+    if (comparable) {
+      const x = keys[idx.get(a)], y = keys[idx.get(b)];
+      for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; }
+    }
+    return idx.get(a) - idx.get(b);                    // 相等或不可比：列表里靠后的算新
+  };
+  return [...nodes].sort(cmp).reverse();                // 最新在前
+}
+/* 把一串节点 id 按 family 折成「条目」：单个节点，或一个版本组 { family, latest, history }。位置取该组第一个成员出现的地方 */
+export function groupByFamily(nodes) {
+  const fam = new Map();
+  for (const n of nodes) if (typeof n.family === "string" && n.family) (fam.get(n.family) || fam.set(n.family, []).get(n.family)).push(n);
+  const seen = new Set(), out = [];
+  for (const n of nodes) {
+    const f = typeof n.family === "string" && n.family ? n.family : null;
+    if (!f || fam.get(f).length < 2) { out.push({ node: n }); continue; }
+    if (seen.has(f)) continue;
+    seen.add(f);
+    const [latest, ...history] = sortVersions(fam.get(f));
+    out.push({ family: f, latest, history });
+  }
+  return out;
+}
+const histKey = (g, family) => `dv:${g.id}/${family}`;
+/* 清单里的行：版本组 = 最新版一行 + 「历史版本 N 个」收纳行 + （展开时）历史行。选中的节点在历史里时自动展开，免得点了却看不到 */
+function assetRows(g, nodes, sel, key, maxSz) {
+  const cols = ASSET_COLS.length;
+  return groupByFamily(nodes).flatMap((it) => {
+    if (it.node) return [assetRow(g, it.node, sel, key, maxSz)];
+    const hk = histKey(g, it.family), forced = it.history.some((x) => x.id === sel);
+    const closed = isFolded(hk, true) && !forced;
+    const tog = h("tr", { class: "vhist", "data-key": "vh:" + it.family },
+      h("td", { colspan: cols }, foldBtn(hk, true), h("span", { class: "vlabel" }, ` 历史版本 ${it.history.length} 个`),
+        h("span", { class: "id" }, "：" + it.history.map((x) => versionOf(x) || x.name || x.id).join("、"))));
+    return [assetRow(g, it.latest, sel, key, maxSz, { latest: true }), tog,
+      ...(closed ? [] : it.history.map((x) => assetRow(g, x, sel, key, maxSz, { old: true })))];
+  });
+}
+
+/* 「N 份」：同一个 family 的多个版本只算一份，另注明含多少个历史版本 */
+function countText(nodes) {
+  const items = groupByFamily(nodes), hist = items.reduce((a, x) => a + (x.history ? x.history.length : 0), 0);
+  return `${items.length} 份` + (hist ? `（含 ${hist} 个历史版本）` : "");
+}
+
+function assetRow(g, n, sel, key, maxSz, o = {}) {
   const m = n.meta || {}, sz = nodeSize(n);
-  return h("tr", { class: `click ${n.id === sel ? "sel" : ""}`, "data-key": "dr:" + n.id, "data-act": "selnode", "data-a1": key, "data-a2": n.id, role: "button", tabindex: 0 },
-    h("td", {}, h("b", {}, n.name || n.id), n.brief ? h("div", { class: "id" }, clip(n.brief, 60)) : null),
+  return h("tr", { class: `click ${n.id === sel ? "sel" : ""}${o.old ? " vold" : ""}`, "data-key": "dr:" + n.id, "data-act": "selnode", "data-a1": key, "data-a2": n.id, role: "button", tabindex: 0 },
+    h("td", {}, h("b", {}, n.name || n.id), o.latest ? h("span", { class: "tag vlatest" }, "最新") : null, n.brief ? h("div", { class: "id" }, clip(n.brief, 60)) : null),
     h("td", {}, DATA_KIND[n.kind] || n.kind || "-"),
     h("td", {}, (n.locations || []).length ? `${n.locations.length} 个` : "未记录", n.replica ? [" ", h("span", { class: `badge rep-${n.replica}` }, REPLICA[n.replica])] : null),
     h("td", { class: "num" }, sz != null ? [fmtBytes(sz), " ", h("span", { class: "sizebar", style: { width: Math.max(2, 60 * sz / maxSz) + "px" } })] : "-"),
     h("td", { class: "num" }, m.count != null ? `${fmtNum(m.count)} ${m.count_unit || "条"}` : "-"),
-    h("td", {}, m.version || "-"), h("td", {}, badge(n.status, NODE_ST)));
+    h("td", {}, versionOf(n) || "-"), h("td", {}, badge(n.status, NODE_ST)));
 }
 
 const ASSET_COLS = ["名称（含一句话说明）", "类型", "存放地址", "大小", "条数", "版本", "状态"];
@@ -347,11 +414,11 @@ export function datasetList(g, sel, key, maxSz) {
   return buckets.map((b, i) => {
     const gk = "dg:" + g.id + ":" + b.name;
     return h("div", { class: "card dgroup" + (isFolded(gk) ? " folded" : ""), "data-key": "dg:" + i, "data-fade": 1 },
-      h("div", { class: "g-head" }, foldBtn(gk), h("h3", {}, b.name), h("span", { class: "kv" }, `${b.ids.length} 份`),
+      h("div", { class: "g-head" }, foldBtn(gk), h("h3", {}, b.name), h("span", { class: "kv" }, countText(b.ids.map((id) => nmap.get(id)).filter(Boolean))),
         b.desc ? h("span", { class: "desc" }, "：" + b.desc) : null),
       foldBody(gk, [h("div", { class: "tbl-wrap" }, h("table", {},
         h("thead", {}, h("tr", {}, ASSET_COLS.map((c) => h("th", {}, c)))),
-        h("tbody", {}, b.ids.filter((id) => nmap.has(id)).map((id) => assetRow(g, nmap.get(id), sel, key, maxSz)))))]));
+        h("tbody", {}, assetRows(g, b.ids.filter((id) => nmap.has(id)).map((id) => nmap.get(id)), sel, key, maxSz))))]));
   });
 }
 
@@ -375,13 +442,13 @@ export function datasetCard(g) {
   const stores = [...byStore.entries()].sort((a, b) => b[1] - a[1]);
   const issues = g.nodes.filter((n) => ["missing", "failed", "stale"].includes(n.status) || n.replica === "mismatch" || n.replica === "missing_copy");
   const noLoc = g.nodes.filter((n) => !(n.locations || []).length).length;
-  const rows = order.map((i) => assetRow(g, g.nodes[i], sel, key, maxSz));
+  const rows = assetRows(g, order.map((i) => g.nodes[i]), sel, key, maxSz);
   const toggle = h("a", { class: "xlink", "data-key": "view-toggle", "data-act": "dsview", "data-a1": key,
     "data-a2": asList ? "graph" : "list", role: "button", tabindex: 0, title: "切换显示方式" },
     asList ? "切成关系图" : "切成分组清单");
   const fk = "ds:" + g.id;
   const overview = h("div", { class: "card" + (isFolded(fk) ? " folded" : ""), id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
-    h("div", { class: "g-head" }, foldBtn(fk), h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
+    h("div", { class: "g-head" }, foldBtn(fk), h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, groupByFamily(g.nodes).some((x) => x.history) ? `（${countText(g.nodes)}）` : "", total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
       issues.length ? h("span", { class: "badge st-failed" }, `${issues.length} 项异常`) : null, noLoc ? h("span", { class: "badge stale" }, `${noLoc} 项未记录地址`) : null, toggle),
     foldBody(fk, [g.description ? h("p", { class: "desc" }, g.description) : null,
     stores.length ? h("div", { class: "mt" }, h("div", { class: "kv" }, "主存储位置占比"),

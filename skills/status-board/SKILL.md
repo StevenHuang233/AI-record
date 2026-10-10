@@ -82,6 +82,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 |---|---|---|
 | 流程每一步是什么、起什么作用 | `sb.define("pipelines", id, {...})`；每个节点写 `role`（一句话作用，直接显示在图上）+ `desc`。**设计前先读 `patterns.md` P0**（粒度、文字长度上限、分组、状态来源） | `references/schema.md` §1、`patterns.md` P0 |
 | 每份数据：在哪、什么意义 | `sb.define("datasets", id, {...})`：`locations`（**有几个副本写几条**）+ `source` + `purpose` + `processing` | §2 |
+| 同一份数据有多个版本（v1.0 / v2.0…） | 每个版本各建一个节点，写同一个 `family` + 各自的 `version`；清单里自动收成「最新版 + 可展开的历史版本」 | §2、`patterns.md` P8b |
 | 模型训练 | `sb.task(id, kind="train", model=…, datasets=[…], hparams=…)` + `sb.point(id, "loss", step, v)` | §3 |
 | 流程执行（每个数据要素到哪一步） | `sb.task(id, kind="run", pipeline=…)` + `sb.item(id, 要素id, step=节点id, status=…)` | §4 |
 | 评测 | `sb.task(id, kind="eval", model=…, datasets=[评测集+地址], scores={…})` | §5 |
@@ -263,6 +264,7 @@ flowchart LR
 
 - `id` 只能含字母数字 `_ . -`，≤64 字符；节点引用格式 `"<图id>/<节点id>"`。
 - Pipeline 节点：`name` ≤ 11 个汉字、`role` ≤ 17 个汉字（超出在图上被截断，体检会警告）；一个节点只属于一个分组；`kind` 只有 7 个合法值——细节与理由见 `patterns.md` P0。
+- 数据有多个版本：每个版本一个节点，`family` 相同、`version` 写字符串（如 `"v2.0"`，写成数字会被拒绝）；**没有多个版本就不要写 `family`**。别把「原始 → 清洗后」这种加工关系当成版本（那是 `edges`，见 P9），也别把备份当成版本（那是 `locations`，见 P8）。
 - 要素很多（>200）时不要逐个 `sb.item`，改传 `step_counts`（**整体替换**，每次传完整快照）；怎么选见 `references/patterns.md` P10。
 - 并行支线上的要素：把「要素 × 支线」各当一个要素（P4）。图里**不能有环**，「重试」的表达方式见 P6。
 - 同一任务的普通进度每 60 秒才写入时间线一次（状态变化必写）；调试可设 `SB_EVENT_GAP=1`。

@@ -99,6 +99,65 @@ class ValidateReportTests(_StateCase):
         self.assertEqual(errs, [], errs)
 
 
+class DatasetVersionTests(_StateCase):
+    """同一份数据的多个版本：family + version。写入时校验类型，体检抓容易写错的几种情况。"""
+
+    def _ds(self, *nodes):
+        edges = [{"from": nodes[0]["id"], "to": nodes[1]["id"]}] if len(nodes) > 1 else []
+        self._define("datasets", "g", graph([data_node(n.pop("id"), brief="b", **n) for n in nodes], edges=edges))
+
+    def _vwarns(self):
+        return [m for lv, m in sbstore.lint() if lv == "warn" and ("family" in m or "version" in m)]
+
+    def test_normal_versions_have_no_warning(self):
+        self._ds({"id": "a", "family": "K", "version": "v1.0"}, {"id": "b", "family": "K", "version": "v2.0"})
+        self.assertEqual(self._vwarns(), [])
+
+    def test_version_must_be_a_string(self):
+        with self.assertRaises(ValueError):
+            self._define("datasets", "g", graph([data_node("a", family="K", version=2.0)]))
+
+    def test_family_must_be_a_nonempty_short_string(self):
+        for bad in ("", "   ", "x" * 41, ["K"], 5):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                self._define("datasets", "g", graph([data_node("a", family=bad, version="v1")]))
+
+    def test_version_length_limit(self):
+        self._define("datasets", "g", graph([data_node("a", family="K", version="v" * 20)]))
+        with self.assertRaises(ValueError):
+            self._define("datasets", "g2", graph([data_node("a", family="K", version="v" * 21)]))
+
+    def test_pipeline_nodes_are_not_subject_to_the_family_rule(self):
+        self._define("pipelines", "p", graph([{"id": "a", "name": "a", "family": 123}], coll="pipelines"))
+
+    def test_family_without_version_is_warned_once(self):
+        self._ds({"id": "a", "family": "K"}, {"id": "b", "family": "K", "version": "v2"})
+        w = self._vwarns()
+        self.assertEqual(len(w), 1, w)
+        self.assertIn("没有 version", w[0])
+
+    def test_single_node_family_is_warned(self):
+        self._ds({"id": "a", "family": "K", "version": "v1"}, {"id": "b"})
+        self.assertTrue(any("只有 1 个节点" in m for m in self._vwarns()))
+
+    def test_duplicate_version_is_warned(self):
+        self._ds({"id": "a", "family": "K", "version": "v1.0"}, {"id": "b", "family": "K", "version": "v1.0"})
+        self.assertTrue(any("都是「v1.0」" in m for m in self._vwarns()))
+
+    def test_unrankable_version_is_warned_with_the_fallback_rule(self):
+        self._ds({"id": "a", "family": "K", "version": "v1"}, {"id": "b", "family": "K", "version": "final"})
+        w = self._vwarns()
+        self.assertEqual(len(w), 1, w)
+        self.assertIn("越靠后越新", w[0])
+
+    def test_two_independent_families_do_not_interfere(self):
+        self._define("datasets", "g", graph([
+            data_node("a", brief="b", family="A", version="v1"), data_node("b", brief="b", family="A", version="v2"),
+            data_node("c", brief="b", family="B", version="1.0"), data_node("d", brief="b", family="B", version="2.0")],
+            edges=[{"from": "a", "to": "b"}, {"from": "c", "to": "d"}]))
+        self.assertEqual(self._vwarns(), [])
+
+
 class LayoutTests(unittest.TestCase):
     """layout：list = 按分组的模块化清单，graph = 关系图（默认）。"""
     def test_layout_list_accepted(self):

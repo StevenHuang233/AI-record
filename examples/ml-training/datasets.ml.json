@@ -44,12 +44,14 @@
   {
    "id": "clean",
    "name": "清洗后数据",
+   "family": "ml-clean",
+   "version": "v2.0",
    "brief": "去重与过滤后的训练候选集",
    "kind": "processed",
    "desc": "去重与过滤后的训练候选集。",
    "source": "由「原始语料」清洗得到",
    "purpose": "作为标注与训练的输入；也是统计数据质量的基准",
-   "processing": "精确去重 + 近似去重；过滤过短/乱码样本；保留率约 58%",
+   "processing": "精确去重 + 近似去重；过滤过短/乱码样本；保留率约 58%（规则 v2，相比 v1 收紧了近似去重阈值）",
    "locations": [
     {
      "label": "主",
@@ -62,9 +64,38 @@
     "size_bytes": 1800000000,
     "count": 69999,
     "format": "jsonl",
-    "version": "v2",
     "updated": "2026-10-03"
    }
+  },
+  {
+   "id": "clean_v1",
+   "name": "清洗后数据",
+   "family": "ml-clean",
+   "version": "v1.0",
+   "brief": "规则 v1 的清洗结果，已被 v2.0 取代",
+   "kind": "processed",
+   "desc": "第一版清洗结果，近似去重阈值较松，残留重复样本偏多。",
+   "source": "由「原始语料」清洗得到",
+   "purpose": "仅留作对照与复现旧实验；新训练请用 v2.0",
+   "processing": [
+    "精确去重 + 宽松近似去重；保留率约 69%",
+    "已被 v2.0 取代，不再更新"
+   ],
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/ml/clean/train.v1.jsonl"
+    }
+   ],
+   "meta": {
+    "size_bytes": 2100000000,
+    "count": 83000,
+    "format": "jsonl",
+    "updated": "2026-09-20"
+   },
+   "status": "stale"
   },
   {
    "id": "bench",
@@ -149,6 +180,11 @@
    "from": "raw",
    "to": "clean",
    "label": "清洗去重"
+  },
+  {
+   "from": "raw",
+   "to": "clean_v1",
+   "label": "清洗去重（规则 v1）"
   },
   {
    "from": "clean",

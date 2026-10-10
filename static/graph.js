@@ -92,6 +92,8 @@ function datasetNode(n, sel, W, H) {
   if (m.count != null) bits.push(`${fmtNum(m.count)} ${m.count_unit || "条"}`);
   const pending = (n.locations || []).some((l) => l.stat && l.stat.pending);
   if (pending) bits.push("统计中…");
+  const ver = n.version != null && n.version !== "" ? String(n.version) : "";
+  if (ver) bits.unshift(ver);                           // 同一份数据有多个版本时，图上一眼看出这是哪一版
   const nl = (n.locations || []).length;
   const line3 = `${NODE_ST[n.status] || n.status} · ${nl ? nl + " 个地址" : "未记录地址"}`;
   const pr = n.progress;

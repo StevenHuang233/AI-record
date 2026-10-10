@@ -409,3 +409,13 @@ h3 > .fold { margin-right: 8px; vertical-align: middle; }
 .card.task.folded { padding-bottom: 10px; }
 .card.folded > .pct-row { margin: 4px 0 0; }
 h2 > .fold { margin-right: 8px; vertical-align: middle; }
+
+/* 数据的多个版本：清单里的「历史版本」收纳行与缩进 */
+tr.vhist td { background: var(--soft); font-size: 12.5px; color: var(--sub); padding-top: 4px; padding-bottom: 4px; }
+tr.vhist .vlabel { color: var(--text); }
+tr.vold td:first-child { padding-left: 26px; }
+tr.vold { opacity: .86; }
+.tag.vlatest { margin-left: 6px; border-color: var(--ok); color: var(--ok); }
+.tag.ver { margin-left: 6px; }
+.vlist { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.vlist .vcur { font-weight: 600; }

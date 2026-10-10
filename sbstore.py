@@ -795,6 +795,10 @@ def clean_definition(coll: str, obj) -> dict:
             ids.add(n["id"])
             if "status" in n and n["status"] not in NODE_STATUS:
                 raise ValueError(f"节点 {n['id']} 的 status 非法: {n['status']}")
+            if coll == "datasets":
+                for f, mx, ex in (("family", 40, "同一份数据的所有版本写同一个值，如 \"KnowShiftQA\""), ("version", 20, "如 \"v2.0\"")):
+                    if f in n and (not isinstance(n[f], str) or not n[f].strip() or len(n[f]) > mx):
+                        raise ValueError(f"节点 {n['id']} 的 {f} 必须是 1~{mx} 字的非空字符串（{ex}）")
         edges = obj.get("edges", [])
         if not isinstance(edges, list) or len(edges) > 1000:
             raise ValueError("edges 必须是列表")
@@ -1376,6 +1380,27 @@ def lint(ignore_example: bool = False) -> list:
                     for f, cn in (("source", "来源"), ("purpose", "用处"), ("processing", "被处理情况")):
                         if not n.get(f):
                             add("warn", f"{nt}: 缺少 {f}（{cn}）")
+            if kind == "datasets":
+                fams = {}
+                for n in g["nodes"]:
+                    if isinstance(n.get("family"), str) and n["family"].strip():
+                        fams.setdefault(n["family"], []).append(n)
+                        if not isinstance(n.get("version"), str) or not n["version"].strip():
+                            add("warn", f"{tag}:{n['id']}: 写了 family「{n['family']}」却没有 version（清单里分不出新旧；版本号如 \"v2.0\"）")
+                for fam, ns in fams.items():
+                    if len(ns) < 2:
+                        add("warn", f"{tag}: family「{fam}」只有 1 个节点——没有多个版本就不需要 family，去掉它")
+                        continue
+                    seen = {}
+                    for n in ns:
+                        v = (n.get("version") or "").strip()
+                        if v and v in seen:
+                            add("warn", f"{tag}: family「{fam}」里节点「{seen[v]}」和「{n['id']}」的 version 都是「{v}」——同一份数据的版本号不能重复")
+                        elif v:
+                            seen[v] = n["id"]
+                    with_ver = [n for n in ns if isinstance(n.get("version"), str) and n["version"].strip()]   # 缺 version 的上面已经报过，这里不重复
+                    if any(not any(ch.isdigit() for ch in n["version"]) for n in with_ver):
+                        add("warn", f"{tag}: family「{fam}」的版本号里有不含数字的（如 \"final\"）——无法比大小，会按节点在列表里的先后判断新旧（越靠后越新）")
     for rid, r in raw["reviews"].items():
         rt = f"reviews/{rid}"
         try:
