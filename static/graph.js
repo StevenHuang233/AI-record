@@ -111,10 +111,10 @@ function datasetNode(n, sel, W, H) {
 
 export function drawGraph(kind, g, selId, gkey) {
   const isData = kind === "datasets";
+  const nodes = g.nodes;
   // 数据节点可能带 brief（一句话说明这份数据是什么），多一行文字，画布相应加高
   const H = isData && nodes.some((n) => n.brief) ? 114 : 98;
   const W = isData ? 250 : 236, GX = 86, GY = 30, PAD = 16;
-  const nodes = g.nodes;
   const hasGroups = (g.groups || []).some((x) => x.nodes.length);
   const TOP = hasGroups ? 40 : PAD;
   const L = layoutGraph(nodes, g.edges, W, H, GX, GY);

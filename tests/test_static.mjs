@@ -1,0 +1,114 @@
+/* 前端渲染的回归测试：需要 Node 18+（有 node 就跑，没有就跳过，Python 测试不依赖它）。
+   用法：node tests/test_static.mjs
+
+   为什么要有这个：static/*.js 是 ES 模块，浏览器里才会执行，写错（例如 const 先用后声明）只有打开页面才发现。
+   这里把 util.js / store.js 换成最小桩，直接跑 drawGraph，能抓到语法错误和运行时错误。
+   改动 static/ 之后请跑一次。 */
+import { writeFileSync, mkdtempSync, rmSync, copyFileSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+let fails = 0;
+const ok = (name, cond, extra = "") => {
+  console.log(`${cond ? "ok  " : "FAIL"} ${name}${cond ? "" : "  " + extra}`);
+  if (!cond) fails += 1;
+};
+
+/* util.js / store.js 的最小桩：只实现被 drawGraph 用到的部分，不引入任何 DOM。 */
+const STUB = `
+const flat = (kids) => kids.flatMap((k) => (Array.isArray(k) ? flat(k) : [k]))
+  .filter((k) => k !== null && k !== undefined && k !== false && k !== "");
+export const h = (tag, attrs, ...kids) => { if (tag == null || tag === false) return null;
+  if (typeof tag !== "string") throw new Error("h: 标签不是字符串: " + tag);
+  return { tag, attrs: attrs || {}, kids: flat(kids) }; };
+export const s = h;
+export const fmtBytes = (x) => String(x);
+export const fmtNum = (x) => String(x);
+export const fmtPct = (x) => String(x);
+export const fmtDur = (x) => String(x);
+export const fmtTime = (x) => String(x);
+export const clip = (str, n) => String(str ?? "").slice(0, n);
+export const badge = () => h("span", {}, "b");
+export const bar = () => h("div", {});
+export const tag = (x) => h("span", {}, String(x));
+export const assetUrl = (x) => String(x);
+export const NODE_ST = { ready: "就绪", building: "生成中", stale: "过期", missing: "缺失", failed: "失败",
+                         pending: "排队", running: "进行中", done: "完成", skipped: "跳过" };
+export const ITEM_ST = { pending: "排队", running: "进行中", done: "完成", failed: "失败", skipped: "跳过" };
+export const TASK_ST = {}; export const TASK_KIND = {}; export const PIPE_KIND = {}; export const DATA_KIND = {};
+export const LOC_ROLE = {}; export const REPLICA = {}; export const META_LABEL = {}; export const META_HIDE = new Set();
+export const S = { state: { pipelines: [], tasks: [], datasets: [] }, sel: {} };
+export const resolveRef = () => null;
+export const findGraph = () => null;
+export const link = (k, id, t) => h("a", {}, String(t));
+export const hrefOf = (k, id) => "#/" + k + "/" + id;
+export const noteLine = (t) => h("span", {}, String(t));
+export const exTag = () => null;
+export const legend = () => h("div", {}, "legend");
+`;
+
+const dir = mkdtempSync(join(tmpdir(), "sb-static-"));
+for (const f of readdirSync(join(ROOT, "static"))) {
+  if (f.endsWith(".js")) copyFileSync(join(ROOT, "static", f), join(dir, f));
+}
+writeFileSync(join(dir, "__stub.js"), STUB);
+writeFileSync(join(dir, "package.json"), '{"type":"module"}');
+for (const f of ["graph.js", "views.js"]) {
+  const p = join(dir, f);
+  const src = (await import("node:fs")).readFileSync(p, "utf8")
+    .replace(/from "\.\/util\.js"/g, 'from "./__stub.js"')
+    .replace(/from "\.\/store\.js"/g, 'from "./__stub.js"');
+  writeFileSync(p, src);
+}
+
+const G = await import(join(dir, "graph.js"));
+const all = (el, out = []) => { if (!el || typeof el !== "object") return out; out.push(el);
+  for (const k of el.kids || []) all(k, out); return out; };
+const texts = (el) => all(el).flatMap((n) => (n.kids || []).filter((k) => typeof k === "string"));
+
+const dataGraph = () => ({
+  id: "g", title: "数据图", description: "d",
+  groups: [{ id: "raw", name: "原始", desc: "只读", nodes: ["a"] },
+           { id: "rel", name: "发布版本", desc: "final 才可用", nodes: ["c"] }],
+  nodes: [
+    { id: "a", name: "A 原始数据", kind: "raw", status: "ready", brief: "A：100 题",
+      locations: [{ label: "主", role: "primary", path: "/tmp/a" }] },
+    { id: "c", name: "C v2.0", kind: "processed", status: "ready", brief: "C v2.0：300 条视频",
+      meta: { count: 300, count_unit: "条视频" }, locations: [{ label: "主", role: "primary", path: "/tmp/c" }] },
+  ],
+  edges: [{ from: "a", to: "c", label: "排页、渲染" }],
+});
+
+try {
+  const out = G.drawGraph("datasets", dataGraph(), "a", "datasets/g");
+  const t = texts(out.el);
+  ok("数据图：带分组 + brief 能渲染", out.el != null);
+  ok("数据图：节点上的 brief 显示在图上", t.some((x) => x.includes("A：100 题")), t.join(" / ").slice(0, 120));
+  ok("数据图：返回按流向排好的节点顺序", Array.isArray(out.order) && out.order.length === 2);
+} catch (e) {
+  ok("数据图：带分组 + brief 能渲染", false, e.message);
+}
+
+try {
+  const out = G.drawGraph("datasets", { id: "g2", title: "t", description: "d",
+    nodes: [{ id: "x", name: "X", kind: "raw" }], edges: [] }, null, "datasets/g2");
+  ok("数据图：旧格式（无分组、无 brief）不受影响", out.el != null);
+} catch (e) {
+  ok("数据图：旧格式（无分组、无 brief）不受影响", false, e.message);
+}
+
+try {
+  const out = G.drawGraph("pipelines", { id: "p", title: "t", description: "d",
+    nodes: [{ id: "s", name: "S", kind: "process", role: "作用" }], edges: [],
+    groups: [{ id: "g", name: "阶段", nodes: ["s"] }] }, null, "pipelines/p");
+  const t = texts(out.el);
+  ok("Pipeline 图：结构与作用不受影响", out.el != null && t.some((x) => x.includes("作用")));
+} catch (e) {
+  ok("Pipeline 图：结构与作用不受影响", false, e.message);
+}
+
+rmSync(dir, { recursive: true, force: true });
+console.log(fails ? `\n${fails} 项失败` : "\n全部通过");
+process.exit(fails ? 1 : 0);

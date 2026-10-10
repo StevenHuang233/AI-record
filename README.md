@@ -186,6 +186,16 @@ python3 server.py --state-dir examples/.play/all --port 8766
 - 资源管理：密钥只登记来源、从不读取内容；多层防泄露（见上）；本机探测只执行固定参数的 `nvidia-smi` 与只读系统调用；对外监听时不返回 `host / path / endpoint / access` 与密钥文件路径。
 - 页面所有文本经 `textContent` 渲染，不使用 `innerHTML`；令牌只走环境变量。
 
+## 测试
+
+```bash
+python3 tests/test_status_board.py    # 存储层与体检：定义校验、分组、brief 提醒、写入后能读回
+node tests/test_static.mjs            # 前端渲染回归（需要 Node 18+，没有就跳过）
+```
+
+`tests/test_static.mjs` 把 `util.js` / `store.js` 换成最小桩后直接跑 `drawGraph`。改了 `static/*.js` 请跑一次：
+ES 模块写错（例如 `const` 先用后声明）只有打开页面才会暴露，这个用例能在提交前抓到。
+
 ## 目录
 
 ```
