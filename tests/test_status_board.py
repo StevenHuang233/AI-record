@@ -119,6 +119,125 @@ class LayoutTests(unittest.TestCase):
             sbstore.clean_definition("datasets", obj)
 
 
+class FacetDefinitionTests(unittest.TestCase):
+    """分面（facets）与矩阵（matrix）的定义校验。"""
+    def review(self, **kw):
+        base = {"title": "t", "description": "d", "kind": "cleaned_data", "source": "x.jsonl",
+                "fields": [{"label": "格", "key": "cell"}], "rules": []}
+        base.update(kw)
+        return base
+
+    def test_facets_accepted(self):
+        obj = self.review(facets=[{"id": "cell", "label": "格", "field": "cell"},
+                                  {"id": "ds", "label": "数据集", "field": "数据集"}])
+        self.assertEqual(len(sbstore.clean_definition("reviews", obj)["facets"]), 2)
+
+    def test_facet_needs_field(self):
+        with self.assertRaises(ValueError):
+            sbstore.clean_definition("reviews", self.review(facets=[{"id": "cell", "label": "格"}]))
+
+    def test_duplicate_facet_id(self):
+        with self.assertRaises(ValueError):
+            sbstore.clean_definition("reviews", self.review(facets=[{"id": "a", "field": "x"}, {"id": "a", "field": "y"}]))
+
+    def test_matrix_must_reference_declared_facets(self):
+        obj = self.review(facets=[{"id": "cell", "field": "cell"}],
+                          matrix={"rows": "cell", "cols": "nope", "metric": "时长秒"})
+        with self.assertRaises(ValueError):
+            sbstore.clean_definition("reviews", obj)
+
+    def test_matrix_accepted(self):
+        obj = self.review(facets=[{"id": "cell", "field": "cell"}, {"id": "t", "field": "turns"}],
+                          matrix={"rows": "cell", "cols": "t", "metric": "时长秒"})
+        self.assertEqual(sbstore.clean_definition("reviews", obj)["matrix"]["metric"], "时长秒")
+
+
+class FacetScanTests(unittest.TestCase):
+    """分面统计与矩阵：扫描一遍 jsonl，取值条数、交叉矩阵、按分面筛选后的行数都要对。"""
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="sb-review-")
+        self.assets = os.path.join(self.dir, "assets")
+        os.makedirs(self.assets, exist_ok=True)
+        self.rows = [{"数据集": "A", "cell": "单图单题", "turns": "单轮", "时长秒": 10},
+                     {"数据集": "A", "cell": "单图单题", "turns": "多轮", "时长秒": 20},
+                     {"数据集": "A", "cell": "多图单题", "turns": "单轮", "时长秒": 30},
+                     {"数据集": "B", "cell": "多图单题", "turns": "多轮", "时长秒": 40}]
+        self.src = os.path.join(self.assets, "s.jsonl")
+        with open(self.src, "w", encoding="utf-8") as f:
+            for r in self.rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def scanned(self):
+        import review
+        conf = {"facets": [{"id": "ds", "label": "数据集", "field": "数据集"},
+                           {"id": "cell", "label": "格", "field": "cell"},
+                           {"id": "turns", "label": "轮次", "field": "turns"}],
+                "matrix": {"rows": "cell", "cols": "turns", "metric": "时长秒"}}
+        res = {}
+        review._scan(self.src, [], ("t",), conf=conf)
+        return review, conf, review._scans[("t",)]
+
+    def test_facet_value_counts(self):
+        review, conf, scan = self.scanned()
+        got = {f["id"]: {v["v"]: v["n"] for v in f["values"]} for f in review.facet_summary(conf, scan, {}, {})}
+        self.assertEqual(got["ds"], {"A": 3, "B": 1})
+        self.assertEqual(got["cell"], {"单图单题": 2, "多图单题": 2})
+
+    def test_facet_counts_respect_other_filters(self):
+        review, conf, scan = self.scanned()
+        picked, idx = review._facet_filter(conf, scan, {"facets": json.dumps({"ds": "A"})})
+        got = {f["id"]: {v["v"]: v["n"] for v in f["values"]} for f in review.facet_summary(conf, scan, picked, idx)}
+        self.assertEqual(got["cell"], {"单图单题": 2, "多图单题": 1})     # 数据集=A 的 3 条里：单图 2、多图 1
+        self.assertEqual(got["turns"], {"单轮": 2, "多轮": 1})
+
+    def test_matrix_cell_counts_and_median(self):
+        review, conf, scan = self.scanned()
+        m = review.matrix_summary(conf, scan, {})
+        cells = {(r, c): m["grid"][i][j] for i, r in enumerate(m["rows"]) for j, c in enumerate(m["cols"])}
+        self.assertEqual(cells[("单图单题", "单轮")]["n"], 1)
+        self.assertEqual(cells[("单图单题", "单轮")]["med"], 10)
+        self.assertEqual(cells[("多图单题", "多轮")]["med"], 40)
+        self.assertEqual(m["rows_id"], "cell")
+        self.assertEqual(m["cols_id"], "turns")
+
+
+class ReviewPageTests(_StateCase):
+    """整页接口：分面筛选和「视图 + 规则」是「并且」的关系。"""
+    def setUp(self):
+        super().setUp()
+        self.assets = sbstore.assets_dir()
+        os.makedirs(self.assets, exist_ok=True)
+        with open(os.path.join(self.assets, "s.jsonl"), "w", encoding="utf-8") as f:
+            for r in [{"数据集": "A", "cell": "单图单题", "时长秒": 10}, {"数据集": "A", "cell": "多图单题", "时长秒": 20},
+                      {"数据集": "B", "cell": "多图单题", "时长秒": 30}]:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        self.defn = {"title": "t", "description": "d", "source": "s.jsonl",
+                     "fields": [{"label": "数据集", "key": "数据集"}], "rules": [],
+                     "facets": [{"id": "ds", "label": "数据集", "field": "数据集"}],
+                     "matrix": {"rows": "ds", "cols": "ds", "metric": "时长秒"}}
+
+    def test_facet_filter_narrows_selection(self):
+        import review
+        out = review.page("r1", self.defn, {"view": "all", "page": 0, "size": 10, "_wait": 5, "facets": json.dumps({"ds": "B"})})
+        self.assertEqual(out["selected"], 1)
+        self.assertEqual([i["row"]["数据集"] for i in out["items"]], ["B"])
+        self.assertEqual(out["picked"], {"ds": "B"})
+
+    def test_without_facets_all_rows(self):
+        import review
+        out = review.page("r1", self.defn, {"view": "all", "page": 0, "size": 10, "_wait": 5})
+        self.assertEqual(out["selected"], 3)
+        self.assertEqual(out["picked"], {})
+
+    def test_unknown_facet_value_is_ignored(self):
+        import review
+        out = review.page("r1", self.defn, {"view": "all", "page": 0, "size": 10, "_wait": 5, "facets": json.dumps({"ds": "不存在"})})
+        self.assertEqual(out["selected"], 3)
+
+
 class RoundTripTests(_StateCase):
     def test_dataset_groups_and_brief_survive_roundtrip(self):
         self._define("datasets", "g", graph([data_node("a", brief="一句话说明")],

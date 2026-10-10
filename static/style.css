@@ -312,3 +312,20 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 0 5px
 .rtile { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 12px; padding: 10px 14px; }
 .rtile.hc-warn { border-left-color: var(--warn); } .rtile.hc-bad { border-left-color: var(--bad); }
 .rtn { font-size: 24px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* 成果校验：分面筛选条与矩阵（照旧浏览站的分面 + 8 格矩阵的看法） */
+.facets .facet { display: flex; gap: 8px; align-items: baseline; margin: 6px 0; }
+.facets .fname { min-width: 92px; font-size: 12px; color: var(--sub); }
+.facets .fvals { display: flex; flex-wrap: wrap; gap: 4px; }
+.fv { border: 1px solid var(--line); background: #f7f6f2; border-radius: 8px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+.fv:hover { border-color: var(--accent); }
+.fv.on { background: var(--accent-soft); border-color: var(--accent); }
+.fv .fn { color: var(--sub); margin-left: 4px; font-size: 11px; }
+table.matrix { border-collapse: separate; border-spacing: 4px; }
+table.matrix th { font-size: 12px; color: var(--sub); font-weight: 600; text-align: left; padding: 0 4px; }
+td.mc { background: #f7f6f2; border: 1px solid var(--line); border-radius: 10px; padding: 6px 9px; cursor: pointer; min-width: 62px; }
+td.mc:hover { border-color: var(--accent); }
+td.mc.on { background: var(--accent-soft); border-color: var(--accent); }
+td.mc.empty { opacity: .4; cursor: default; }
+td.mc .mn { font-size: 14px; font-weight: 600; }
+td.mc .md { font-size: 11px; color: var(--sub); }

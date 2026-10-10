@@ -442,6 +442,27 @@ def _check_review(obj: dict) -> None:
         for k in keys:
             if not isinstance(f.get(k), str) or not f[k] or len(f[k]) > 80:
                 raise ValueError(f"fields 里 type={t} 的项必须有字符串字段 {k}")
+    facets = obj.get("facets", [])
+    if not isinstance(facets, list) or len(facets) > 6:
+        raise ValueError("facets 必须是不超过 6 项的列表（每项 {id, label, field}）")
+    fids = set()
+    for f in facets:
+        if not isinstance(f, dict):
+            raise ValueError("facets 每项必须是对象")
+        check_id(f.get("id"))
+        if f["id"] in fids:
+            raise ValueError(f"分面 id 重复: {f['id']}")
+        fids.add(f["id"])
+        if not isinstance(f.get("field"), str) or not f["field"] or len(f["field"]) > 80:
+            raise ValueError(f"分面 {f['id']} 必须有字符串 field")
+    matrix = obj.get("matrix")
+    if matrix is not None:
+        if not isinstance(matrix, dict):
+            raise ValueError("matrix 必须是对象")
+        if matrix.get("rows") not in fids or matrix.get("cols") not in fids:
+            raise ValueError("matrix 的 rows / cols 必须是 facets 里声明过的分面 id")
+        if matrix.get("metric") is not None and (not isinstance(matrix["metric"], str) or len(matrix["metric"]) > 80):
+            raise ValueError("matrix.metric 必须是字符串字段名")
     rules = obj.get("rules", [])
     if not isinstance(rules, list) or len(rules) > 30:
         raise ValueError("rules 必须是不超过 30 条的列表")

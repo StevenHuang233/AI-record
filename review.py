@@ -21,6 +21,8 @@ SCAN_BUDGET = float(os.environ.get("SB_REVIEW_BUDGET", "60"))
 LINE_MAX = 200_000
 STR_CAP = 4000
 UNIQUE_CAP = 500_000
+FACET_MAX_VALUES = 40          # 每个分面最多记多少个取值，其余归到「…其他」
+MATRIX_SAMPLE = 4096           # 矩阵每格最多留多少个指标值算中位数，超了用均值近似（标注 approximate）
 
 
 # ── 取值与脱敏 ────────────────────────────────────────────────────────────────
@@ -134,13 +136,78 @@ _scans: dict = {}
 _lock = threading.Lock()
 
 
-def _scan(full: str, rules: list, key: tuple):
+def facet_view(conf: dict) -> list:
+    out = []
+    for f in conf.get("facets") or []:
+        out.append({"id": f["id"], "label": f.get("label") or f["id"], "field": f["field"]})
+    return out
+
+
+def collect_facets(facets: list, row: dict, line: int, acc: dict):
+    """扫描每一行时顺手统计分面取值（存的是下标，不是字符串，省内存）。"""
+    for k, f in enumerate(facets):
+        ok, v = get_path(row, f["field"])
+        if not ok or v is None or isinstance(v, (dict, list)):
+            continue
+        v = v if isinstance(v, (str, int, float, bool)) else str(v)
+        vals = acc["values"][k]
+        idx = vals[1].get(v)
+        if idx is None:
+            if len(vals[0]) >= FACET_MAX_VALUES:
+                idx = vals[1].get("…其他")
+                if idx is None:
+                    idx = len(vals[0])
+                    vals[0].append("…其他")
+                    vals[1]["…其他"] = idx
+            else:
+                idx = len(vals[0])
+                vals[0].append(v)
+                vals[1][v] = idx
+        acc["lines"][k][line] = idx
+        vals[2][idx] = vals[2].get(idx, 0) + 1
+
+
+def collect_matrix(conf: dict, row: dict, acc: dict):
+    """矩阵单元格计数 + 指标抽样（每格最多存 MATRIX_SAMPLE 个值，超了用均值近似）。"""
+    m = conf.get("matrix") or {}
+    ids = [f["id"] for f in (conf.get("facets") or [])]
+    if m.get("rows") not in ids or m.get("cols") not in ids:
+        return
+    ri, ci = ids.index(m["rows"]), ids.index(m["cols"])
+    r_idx, c_idx = acc["lines"][ri].get(acc["line"]), acc["lines"][ci].get(acc["line"])
+    if r_idx is None or c_idx is None:
+        return
+    key = (r_idx, c_idx)
+    cell = acc["cells"].get(key)
+    if cell is None:
+        cell = acc["cells"][key] = {"n": 0, "vals": [], "sum": 0.0}
+    cell["n"] += 1
+    ok, num = get_path(row, m["metric"]) if m.get("metric") else (False, None)
+    if not ok or isinstance(num, bool) or not isinstance(num, (int, float)):
+        return
+    cell["sum"] += num
+    if len(cell["vals"]) < MATRIX_SAMPLE:
+        cell["vals"].append(num)
+
+
+def median(vals: list) -> float:
+    if not vals:
+        return 0.0
+    s = sorted(vals)
+    mid = len(s) // 2
+    return float(s[mid]) if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
+
+
+def _scan(full: str, rules: list, key: tuple, conf: dict | None = None):
     t0 = time.time()
+    conf = conf or {}
     fails = {}                    # 行号(1 起) -> [失败规则序号]
     per_rule = [0] * len(rules)
     total = bad_json = 0
     state: dict = {}
     truncated = False
+    facets = conf.get("facets") or []
+    acc = {"values": [[[], {}, {}] for _ in facets], "lines": [{} for _ in facets], "cells": {}, "line": 0}
     try:
         with open(full, "rb") as f:
             while True:
@@ -177,21 +244,27 @@ def _scan(full: str, rules: list, key: tuple):
                         per_rule[i] += 1
                 if failed:
                     fails[total] = failed
+                if facets or (conf.get("matrix") or {}):
+                    acc["line"] = total
+                    collect_facets(facets, row, total, acc)
+                    collect_matrix(conf, row, acc)
         res = {"done": True, "rows": total, "bad_json": bad_json, "fails": fails, "per_rule": per_rule,
-               "truncated": truncated, "elapsed": time.time() - t0, "ts": time.time()}
+               "truncated": truncated, "elapsed": time.time() - t0, "ts": time.time(),
+               "facet_values": [v[0] for v in acc["values"]], "facet_lines": acc["lines"], "matrix_cells": acc["cells"]}
     except OSError as e:
         res = {"done": True, "error": e.__class__.__name__, "ts": time.time()}
     with _lock:
         _scans[key] = res
 
 
-def scan_status(full: str, rules: list) -> dict:
-    """返回缓存的扫描结果；没有则启动后台扫描并返回 pending。"""
+def scan_status(full: str, rules: list, conf: dict | None = None, wait: float = 0) -> dict:
+    """返回缓存的扫描结果；没有则启动后台扫描并返回 pending。conf（分面 / 矩阵）变了要重新扫描。
+    wait > 0：最多等这么久让后台扫描完成（测试用；接口永远用默认值，不阻塞）。"""
     try:
         st = os.stat(full)
     except OSError:
         return {"error": "FileNotFoundError"}
-    key = (full, st.st_mtime_ns, st.st_size, rules_fp(rules))
+    key = (full, st.st_mtime_ns, st.st_size, rules_fp(rules), rules_fp(conf or {}))
     with _lock:
         res = _scans.get(key)
         if res is not None:
@@ -201,8 +274,92 @@ def scan_status(full: str, rules: list) -> dict:
             _scans.pop(k, None)
         if len(_scans) > 40:
             _scans.pop(next(iter(_scans)), None)
-    threading.Thread(target=_scan, args=(full, rules, key), daemon=True).start()
+    threading.Thread(target=_scan, args=(full, rules, key), kwargs={"conf": conf or {}}, daemon=True).start()
+    if wait > 0:
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            with _lock:
+                res = _scans.get(key)
+            if res and not res.get("pending"):
+                return res
+            time.sleep(0.02)
     return {"pending": True}
+
+
+def _facet_filter(conf: dict, scan: dict, q: dict) -> tuple[dict, dict]:
+    """解析查询里的分面筛选 → ({分面id: 取值}, {分面id: 下标})。取值不在扫描结果里就忽略。"""
+    raw = q.get("facets")
+    try:
+        want = json.loads(raw) if isinstance(raw, str) and raw else {}
+    except ValueError:
+        want = {}
+    if not isinstance(want, dict):
+        want = {}
+    facets = conf.get("facets") or []
+    values = scan.get("facet_values") or []
+    lines = scan.get("facet_lines") or []
+    picked, picked_idx = {}, {}
+    for k, f in enumerate(facets):
+        v = want.get(f["id"])
+        if v is None or v == "":
+            continue
+        names = values[k] if k < len(values) else []
+        if v in names:
+            picked[f["id"]] = v
+            picked_idx[k] = names.index(v)
+    return picked, picked_idx
+
+
+def facet_summary(conf: dict, scan: dict, picked: dict, picked_idx: dict) -> list:
+    """每个分面的取值与条数。某个分面的条数按「除它自己外其他筛选都生效」算，
+    这样页面上每行的按钮数字不会因为选了它自己而全部变成同一个值。"""
+    facets = conf.get("facets") or []
+    values = scan.get("facet_values") or []
+    lines = scan.get("facet_lines") or []
+    others = {k: i for k, i in picked_idx.items()}
+    out = []
+    for k, f in enumerate(facets):
+        names = values[k] if k < len(values) else []
+        mine = {kk: i for kk, i in others.items() if kk != k}      # 除自己以外已选的分面
+        counts = [0] * len(names)
+        for line in (lines[k] if k < len(lines) else {}):
+            if mine and any((lines[o] or {}).get(line) != i for o, i in mine.items()):
+                continue
+            idx = (lines[k] or {}).get(line)
+            if idx is not None and idx < len(counts):
+                counts[idx] += 1
+        vals = [{"v": n, "n": c} for n, c in zip(names, counts) if c]
+        vals.sort(key=lambda x: -x["n"])
+        out.append({"id": f["id"], "label": f.get("label") or f["id"], "values": vals})
+    return out
+
+
+def matrix_summary(conf: dict, scan: dict, picked_idx: dict) -> dict | None:
+    """两个分面交叉的矩阵：每格显示条数和指标中位数（旧浏览站 8 格那样的看法）。"""
+    m = conf.get("matrix") or {}
+    ids = [f["id"] for f in (conf.get("facets") or [])]
+    if m.get("rows") not in ids or m.get("cols") not in ids:
+        return None
+    ri, ci = ids.index(m["rows"]), ids.index(m["cols"])
+    values = scan.get("facet_values") or []
+    cells = scan.get("matrix_cells") or {}
+    rnames = values[ri] if ri < len(values) else []
+    cnames = values[ci] if ci < len(values) else []
+    grid = []
+    for a, rn in enumerate(rnames):
+        row = []
+        for b, cn in enumerate(cnames):
+            cell = cells.get((a, b)) or cells.get(f"{a}|{b}") or {}
+            n = int(cell.get("n") or 0)
+            vals = cell.get("vals") or []
+            med = median(vals) if vals else (cell.get("sum", 0) / n if n else 0)
+            row.append({"n": n, "med": round(med, 2), "approx": bool(vals) and len(vals) >= MATRIX_SAMPLE})
+        grid.append(row)
+    return {"rows": rnames, "cols": cnames, "row_label": next((f.get("label") or f["id"] for f in (conf.get("facets") or []) if f["id"] == m["rows"]), m["rows"]),
+            "col_label": next((f.get("label") or f["id"] for f in (conf.get("facets") or []) if f["id"] == m["cols"]), m["cols"]),
+            "rows_id": m["rows"], "cols_id": m["cols"],
+            "metric": m.get("metric"), "grid": grid,
+            "picked": {ids[k]: (values[k][i] if k < len(values) and i < len(values[k]) else None) for k, i in picked_idx.items()}}
 
 
 # ── 按页读取 ──────────────────────────────────────────────────────────────────
@@ -274,7 +431,9 @@ def page(rid: str, d: dict, q: dict) -> dict:
     if not full or not os.path.isfile(full):
         return {"error": f"源文件不存在: {d['source']}"}
     rules = d.get("rules") or []
-    scan = scan_status(full, rules)
+    conf = {"facets": d.get("facets") or [], "matrix": d.get("matrix") or {}}
+    scan = scan_status(full, rules, conf, wait=float(q.get("_wait") or 0))
+    picked, picked_idx = ({}, {}) if (scan.get("pending") or scan.get("error")) else _facet_filter(conf, scan, q)
     marks_file = store.read_json(store.item_path("marks", rid), None) or {}
     marks = marks_file.get("marks") or {}
     try:
@@ -296,11 +455,18 @@ def page(rid: str, d: dict, q: dict) -> dict:
     if rule_filter not in (None, "") and not pending:
         idx = next((i for i, r in enumerate(rules) if r["id"] == rule_filter), None)
         pool = sorted(ln for ln, fl in (scan.get("fails") or {}).items() if idx is not None and idx in fl)
-        lines, sel_total = pool[pg * size:(pg + 1) * size], len(pool)
     elif view in ("fail", "pass") and pending:
-        lines, sel_total = [], 0
+        pool = []
     else:
-        lines, sel_total = line_numbers(scan, view, marks, pg, size, rows_total)
+        pool, _ = line_numbers(scan, view, marks, 0, max(rows_total or 0, 1), rows_total)
+        pool = list(pool) if view != "all" else list(range(1, (rows_total or 0) + 1))
+    if picked_idx:                       # 分面筛选：和其他筛选是「并且」的关系
+        fmap = scan.get("facet_lines") or []
+        pool = [ln for ln in pool if all((fmap[k] or {}).get(ln) == i for k, i in picked_idx.items() if k < len(fmap))]
+    if rule_filter not in (None, "") and not pending:
+        lines, sel_total = pool[pg * size:(pg + 1) * size], len(pool)
+    else:
+        lines, sel_total = pool[pg * size:(pg + 1) * size], len(pool)
     got = read_rows(full, lines)
     items = []
     for ln in lines:
@@ -325,7 +491,12 @@ def page(rid: str, d: dict, q: dict) -> dict:
         if isinstance(m, dict) and m.get("v") in counts:
             counts[m["v"]] += 1
     out = {"rows": rows_total, "view": view, "page": pg, "size": size, "selected": sel_total, "items": items,
-           "marked": counts, "scan": _public_scan(scan, rules), "mtime": os.path.getmtime(full)}
+           "marked": counts, "scan": _public_scan(scan, rules), "mtime": os.path.getmtime(full), "picked": picked}
+    if not (scan.get("pending") or scan.get("error")):
+        if conf["facets"]:
+            out["facets"] = facet_summary(conf, scan, picked, picked_idx)
+        if conf.get("matrix"):
+            out["matrix"] = matrix_summary(conf, scan, picked_idx)
     return out
 
 

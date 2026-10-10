@@ -130,6 +130,9 @@ try {
   ok("分组清单渲染", false, e.message);
 }
 
+/* 注：review.js 直接用 document 绑键盘事件，Node 里没有 DOM，前端渲染不在这里测。
+   分面统计 / 矩阵 / 筛选的逻辑由 tests/test_status_board.py 覆盖。 */
+
 rmSync(dir, { recursive: true, force: true });
 console.log(fails ? `\n${fails} 项失败` : "\n全部通过");
 process.exit(fails ? 1 : 0);

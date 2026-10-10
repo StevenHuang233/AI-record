@@ -7,6 +7,7 @@ import { S } from "./store.js";
 export const RV = {
   id: null,        // 当前校验集
   view: "all", rule: "", page: 0, size: null,
+  picked: {},      // 分面筛选：{分面id: 取值}
   data: null,      // /api/review/<id> 的返回
   loading: false, error: null,
   sel: null,       // 当前选中的行号（键盘操作的对象）
@@ -21,7 +22,7 @@ let timer = null, onChange = () => {}, seq = 0;
 export const setOnChange = (f) => { onChange = f; };
 
 function resetView(id) {
-  Object.assign(RV, { id, view: "all", rule: "", page: 0, size: null, data: null, loading: false, error: null, sel: null, toast: null });
+  Object.assign(RV, { id, view: "all", rule: "", page: 0, size: null, picked: {}, data: null, loading: false, error: null, sel: null, toast: null });
 }
 
 /* enter 会在每次渲染时被调用：必须幂等——只在「换了校验集」时才发请求；失败后不自动重试（否则失败→重绘→再请求死循环）。
@@ -44,6 +45,8 @@ export async function fetchPage(silent) {
     let q = `view=${encodeURIComponent(RV.view)}&page=${RV.page}`;      // 不用 URLSearchParams：构造放进 try，任何异常都显示为错误而不是卡在加载中
     if (RV.size) q += `&size=${RV.size}`;
     if (RV.rule) q += `&rule=${encodeURIComponent(RV.rule)}`;
+    const pf = Object.entries(RV.picked).filter(([, v]) => v !== "" && v != null);
+    if (pf.length) q += `&facets=${encodeURIComponent(JSON.stringify(Object.fromEntries(pf)))}`;
     const r = await fetch(`/api/review/${encodeURIComponent(id)}?${q}`, { cache: "no-store" });
     const d = await r.json();
     if (my !== seq || RV.id !== id) return;
@@ -62,6 +65,12 @@ export async function fetchPage(silent) {
 
 export function setView(view) { RV.view = view; RV.rule = ""; RV.page = 0; RV.sel = null; fetchPage(); }
 export function setRule(rule) { RV.view = "fail"; RV.rule = rule; RV.page = 0; RV.sel = null; fetchPage(); }
+export function setFacet(id, v) {
+  if (v === "" || v == null) delete RV.picked[id]; else RV.picked[id] = v;
+  RV.page = 0; RV.sel = null; fetchPage();
+}
+export function clearFacets() { RV.picked = {}; RV.page = 0; RV.sel = null; fetchPage(); }
+
 export function gotoPage(p) {
   const d = RV.data; if (!d) return;
   const last = Math.max(0, Math.ceil(d.selected / d.size) - 1);
@@ -210,6 +219,53 @@ function ruleSummary(def, scan) {
       : h("div", { class: "id" }, "没有配置自动规则，只能人工校验。"));
 }
 
+/* 分面筛选条：每个分面一行按钮，数字是当前其他筛选下这个取值有多少条（点一下筛选，再点取消） */
+function facetBar(d) {
+  if (!d.facets || !d.facets.length) return null;
+  const rows = d.facets.map((f) => h("div", { class: "facet", "data-key": "fc:" + f.id },
+    h("div", { class: "fname" }, f.label),
+    h("div", { class: "fvals" },
+      h("button", { class: `fv ${!(RV.picked[f.id] != null) ? "on" : ""}`, "data-act": "rvfacet", "data-a1": f.id, "data-a2": "" }, "全部"),
+      f.values.map((v) => h("button", { class: `fv ${RV.picked[f.id] === v.v ? "on" : ""}`, "data-act": "rvfacet", "data-a1": f.id, "data-a2": String(v.v), title: `${v.n} 条` },
+        String(v.v), h("span", { class: "fn" }, fmtNum(v.n)))))));
+  const active = Object.keys(RV.picked).filter((k) => RV.picked[k] != null && RV.picked[k] !== "");
+  return h("div", { class: "card facets", "data-key": "facets" },
+    h("div", { class: "g-head" }, h("h3", {}, "按字段筛选（数字 = 当前筛选下的条数）"),
+      active.length ? h("button", { class: "tl-btn", "data-act": "rvclearf" }, "清空筛选（" + active.length + "）") : null),
+    rows);
+}
+
+/* 矩阵：两个分面交叉，每格显示条数 + 指标中位数，点格子同时筛这两个分面 */
+function matrixCard(d) {
+  const m = d.matrix;
+  if (!m || !m.grid || !m.grid.length) return null;
+  const pickedOf = (id) => (RV.picked[id] != null ? RV.picked[id] : null);
+  return h("div", { class: "card", "data-key": "matrix" },
+    h("div", { class: "g-head" }, h("h3", {}, `${m.col_label} × ${m.row_label}`),
+      h("span", { class: "kv" }, m.metric ? "每格：条数 / " + m.metric + "中位数" : "每格：条数"),
+      h("span", { class: "id" }, "点格子 = 同时按这两个字段筛选")),
+    h("div", { class: "tbl-wrap" }, matrixTable(m)));
+}
+
+function matrixTable(m) {
+  const pickedOf = (id) => (RV.picked[id] != null ? RV.picked[id] : null);
+  return h("table", { class: "matrix" },
+      h("thead", {}, h("tr", {}, h("th", {}, ""), m.cols.map((c) => h("th", {}, String(c))))),
+      h("tbody", {}, m.grid.map((row, i) => {
+        const rn = String(m.rows[i]);
+        const cells = row.map((c, j) => {
+          const cn = String(m.cols[j]);
+          const on = pickedOf(m.rows_id) === rn && pickedOf(m.cols_id) === cn;
+          const attrs = { class: `mc ${c.n ? "" : "empty"} ${on ? "on" : ""}`, "data-key": "mc:" + i + ":" + j,
+            "data-act": "rvcell", "data-a1": rn, "data-a2": cn, role: "button", tabindex: 0,
+            title: `${rn} × ${cn}：${c.n} 条` };
+          return h("td", attrs, h("div", { class: "mn" }, fmtNum(c.n)),
+            c.n ? h("div", { class: "md" }, (c.approx ? "≈" : "") + fmtNum(c.med)) : null);
+        });
+        return h("tr", { "data-key": "mr:" + i }, h("th", {}, rn), cells);
+      })));
+}
+
 function pager(d) {
   const last = Math.max(0, Math.ceil(d.selected / d.size) - 1);
   const b = (txt, p, dis) => h("button", { class: "tl-btn", "data-act": "rvpage", "data-a1": String(p), disabled: dis }, txt);
@@ -240,6 +296,6 @@ export function reviewWorkbench(def) {
   else if (!d) body = h("div", { class: "empty", "data-key": "rvload" }, "加载样本中…");
   else if (!d.items.length) body = h("div", { class: "empty", "data-key": "rvempty" }, d.scan && d.scan.pending && (RV.view === "fail" || RV.view === "pass" || RV.rule) ? "规则检查还没完成，完成后这里会出现结果。" : "这个视图下没有样本。");
   else body = h("div", { class: "rvlist", "data-key": "rvlist" }, d.items.map((it) => sampleCard(it, { ...def, scan: d.scan }, it.line === RV.sel)));
-  return [progress, ruleSummary(def, d && d.scan), toolbar, body, d && d.items.length ? pager(d) : null,
+  return [progress, d ? facetBar(d) : null, d ? matrixCard(d) : null, ruleSummary(def, d && d.scan), toolbar, body, d && d.items.length ? pager(d) : null,
           RV.toast ? h("div", { class: "toast", "data-key": "toast" }, RV.toast) : null];
 }

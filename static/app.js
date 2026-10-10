@@ -5,7 +5,7 @@ import { h, patch, onAction, fmtTime } from "./util.js";
 import { S } from "./store.js";
 import { parseRoute, navKeyOf, renderPage } from "./pages.js";
 import { TL, mount, setEvents } from "./timeline.js";
-import { setOnChange, setView, setRule, gotoPage, mark, RV } from "./review.js";
+import { setOnChange, setView, setRule, gotoPage, mark, setFacet, clearFacets, fetchPage, RV } from "./review.js";
 
 const POLL_MS = 2500;
 const NAV = [["home", "首页", "#/"], ["train", "训练", "#/train"], ["run", "流水线执行", "#/run"], ["eval", "评测", "#/eval"],
@@ -82,6 +82,16 @@ onAction("rvsel", (line, _a2, el, e) => {
   RV.sel = parseInt(line, 10); render();
 });
 onAction("rvmark", (line, v, _el, e) => { e.stopPropagation(); RV.sel = parseInt(line, 10); mark(parseInt(line, 10), v); });
+onAction("rvfacet", (id, v) => setFacet(id, v === "" ? "" : v));
+onAction("rvclearf", () => clearFacets());
+onAction("rvcell", (rowVal, colVal) => {           // 点矩阵格子：同时筛行分面和列分面
+  const m = RV.data && RV.data.matrix;
+  if (!m) return;
+  const same = RV.picked[m.rows_id] === rowVal && RV.picked[m.cols_id] === colVal;
+  RV.picked = {};
+  if (!same) { RV.picked[m.rows_id] = rowVal; RV.picked[m.cols_id] = colVal; }
+  RV.page = 0; RV.sel = null; fetchPage();
+});
 onAction("rvnote", (line, _a2, _el, e) => {
   e.stopPropagation();
   const ln = parseInt(line, 10), it = RV.data && RV.data.items.find((x) => x.line === ln);
