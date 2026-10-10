@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import resources
 import review
 import sbstore as store
+import procs
 import versions
 
 STATIC = os.path.join(store.ROOT, "static")
@@ -38,6 +39,8 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 STALE_DEFAULT = 300.0
 STAT_TTL = float(os.environ.get("SB_STAT_TTL", "300"))
 STAT_BUDGET = float(os.environ.get("SB_STAT_BUDGET", "30"))
+FILE_TTL = float(os.environ.get("SB_STAT_FILE_TTL", "3"))     # 单个文件的 stat 几乎免费，正在被追加写入的 jsonl / 日志几秒就刷新
+REFRESH_MIN, REFRESH_MAX = 5.0, 86400.0                        # 地址上 refresh 字段的允许范围（秒）
 TIMELINE_MAX = int(os.environ.get("SB_TIMELINE_MAX", "5000"))
 
 CONFIG = {"token": "", "writable": True, "allowed_hosts": set(LOOPBACK), "loopback": True, "show_paths": True}
@@ -140,9 +143,9 @@ def _walk_size(path: str) -> dict:
 def _stat_worker(path: str):
     try:
         if os.path.isfile(path):
-            res = {"size": os.path.getsize(path), "files": 1, "truncated": False}
+            res = {"size": os.path.getsize(path), "files": 1, "truncated": False, "kind": "file"}
         elif os.path.isdir(path):
-            res = _walk_size(path)
+            res = {**_walk_size(path), "kind": "dir"}
         else:
             res = {"missing": True}
     except OSError as e:
@@ -152,7 +155,9 @@ def _stat_worker(path: str):
         _stat_cache[path] = res
 
 
-def path_stat(path: str) -> dict:
+def path_stat(path: str, ttl=None) -> dict:
+    """路径的实测大小 / 文件数：后台线程统计，永远立刻返回缓存（过期的旧值先顶着，后台刷新，页面不会被慢盘拖住）。
+    刷新间隔：地址上写了 refresh 就用它；否则单个文件 SB_STAT_FILE_TTL（默认 3 秒），目录 SB_STAT_TTL（默认 300 秒，逐文件累加较贵）。"""
     now = time.time()
     with _stat_lock:
         c = _stat_cache.get(path)
@@ -160,7 +165,7 @@ def path_stat(path: str) -> dict:
             _stat_cache[path] = {"pending": True, "ts": 0, "started": now}
         elif c.get("pending") and now - c.get("started", 0) < STAT_BUDGET * 3:
             return {"pending": True}
-        elif not c.get("pending") and now - c["ts"] < STAT_TTL:
+        elif not c.get("pending") and now - c["ts"] < (ttl if ttl is not None else FILE_TTL if c.get("kind") == "file" else STAT_TTL):
             return c
         else:
             _stat_cache[path] = {**c, "pending": True, "started": now}
@@ -199,7 +204,7 @@ def _counts_from_items(items) -> dict:
     return c
 
 
-def _task_view(t: dict, now: float) -> dict:
+def _task_view(t: dict, now: float, live: bool = True) -> dict:
     shards = t.get("shards") or []
     done, total = t.get("done"), t.get("total")
     if total in (None, 0) and shards:
@@ -226,6 +231,12 @@ def _task_view(t: dict, now: float) -> dict:
     stale_after = t.get("stale_after") or STALE_DEFAULT
     t["idle"] = max(0.0, now - t.get("updated_at", now))
     t["stale"] = status == "running" and t["idle"] > stale_after
+    t["dead"] = False
+    if live and t.get("pid") and status in ("running", "queued"):          # 回放历史时不查：过去的 pid 现在不在是正常的
+        t["proc"] = procs.check(t["pid"], t.get("host"), t.get("pid_start"))      # alive / dead / remote / unknown
+        t["dead"] = t["proc"] == "dead"                                            # 任务还写着运行中，但进程已经没了
+        if t["dead"]:
+            t["eta"] = None
     if t.get("items") and not t.get("step_counts"):
         t["step_counts"] = _counts_from_items(t["items"])
     return t
@@ -321,7 +332,8 @@ def _derive_dataset(g: dict):
                 continue
             loc = dict(loc)
             if loc.get("auto_stat") and isinstance(loc.get("path"), str):
-                loc["stat"] = path_stat(loc["path"])
+                rf = loc.get("refresh")
+                loc["stat"] = path_stat(loc["path"], max(REFRESH_MIN, min(REFRESH_MAX, float(rf))) if isinstance(rf, (int, float)) and not isinstance(rf, bool) else None)
             out.append(loc)
         measured = [l for l in out if isinstance(l.get("stat"), dict) and "size" in l["stat"] and not l["stat"].get("truncated")]
         if len(out) >= 2:
@@ -394,7 +406,7 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
         if "__error__" not in t:
             t = copy.deepcopy(t)
             t["id"] = iid
-            tasks.append(_task_view(t, now))
+            tasks.append(_task_view(t, now, live))
     tasks.sort(key=lambda t: (t.get("started_at") or t.get("created_at") or 0))
     versions.annotate(tasks, scope=lambda t: t.get("kind") or "job")           # 版本号相同 / 不可比时：开始得晚的算新
     tasks.sort(key=lambda t: -(t.get("started_at") or t.get("created_at") or 0))
@@ -425,6 +437,7 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
         out[kind] = items
     out["summary"] = {s: sum(1 for t in tasks if t["status"] == s) for s in store.TASK_STATUS}
     out["summary"]["stale"] = sum(1 for t in tasks if t["stale"])
+    out["summary"]["dead"] = sum(1 for t in tasks if t.get("dead") and not versions.is_hist(t))
     out["by_kind"] = {k: sum(1 for t in tasks if t.get("kind", "job") == k) for k in store.TASK_KINDS}
     return out
 

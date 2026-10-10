@@ -29,7 +29,7 @@ function render() {
       h("span", { class: "live" }, h("span", { class: `dot ${S.offline ? "off" : hist ? "hist" : ""}` }),
         S.offline ? "连接中断，显示的是旧数据" : hist ? `历史回放 · ${fmtTime(st.now)}` : `实时 · 更新于 ${fmtTime(S.lastOk / 1000)}`)),
     h("nav", { class: "mainnav" }, NAV.map(([k, label, href]) => h("a", { href, class: k === active ? "on" : "", "data-key": "nav:" + k }, label))),
-    h("div", { class: "chips" }, chip("运行中", sm.running, "running"), chip("排队", sm.queued, "queued"), chip("已完成", sm.done, "done"), chip("失败", sm.failed, "failed"), chip("疑似停滞", sm.stale, "stale"),
+    h("div", { class: "chips" }, chip("运行中", sm.running, "running"), chip("排队", sm.queued, "queued"), chip("已完成", sm.done, "done"), chip("失败", sm.failed, "failed"), chip("疑似停滞", sm.stale, "stale"), chip("进程已退出", sm.dead || 0, "failed"),
       chip("训练", bk.train, "plain"), chip("流水线执行", bk.run, "plain"), chip("评测", bk.eval, "plain")));
 
   const root = h("div", { id: "app", "data-key": "app" },

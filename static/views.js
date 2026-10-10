@@ -87,12 +87,14 @@ function taskTop(t) {
   const kind = t.kind || "job", fk = taskFoldKey(t);
   return [
     h("div", { class: "task-head" }, foldBtn(fk), tag(TASK_KIND[kind] || kind, `kind-${kind}`), h("span", { class: "name", title: t.name || t.id }, t.name || t.id),
+      t.dead ? h("span", { class: "badge st-failed", title: "进程已不存在，但任务还写着运行中" }, "进程已退出") : null,
       t.stale ? h("span", { class: "badge stale" }, "疑似停滞") : null, badge(t.status, TASK_ST)),
-    h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))),   // 收起后仍保留：监督时最需要看的就是进度
+    h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale || t.dead }), h("span", { class: "pct" }, fmtPct(t.progress))),   // 收起后仍保留：监督时最需要看的就是进度
     foldBody(fk, [
       h("div", { class: "id" }, t.id, t.pipeline ? [" · 所属 ", link("pipelines", t.pipeline + (t.node ? "/" + t.node : ""), t.pipeline + (t.node ? " / " + t.node : ""))] : null),
       h("div", { class: "kv" }, kvs),
-      t.stale ? noteLine(`已 ${fmtDur(t.idle)} 没有收到心跳，进程可能已卡死或退出`) : null,
+      t.dead ? noteLine(`进程（PID ${t.pid}）已经不存在，但任务仍是「运行中」，也没有收到完成 / 失败上报：可能被 kill、OOM 或机器重启了。最后一次上报在 ${fmtDur(t.idle)} 前。`) : null,
+      t.stale && !t.dead ? noteLine(`已 ${fmtDur(t.idle)} 没有收到心跳，进程可能已卡死或退出`) : null,
       t.message ? h("div", { class: "msg" }, t.message) : null]),
   ];
 }
@@ -287,9 +289,10 @@ export function dataNodeDetail(g, n, nav) {
       const st = l.stat;
       const sTxt = !st ? (l.verified ? `登记于 ${l.verified}` : "未实测") : st.pending ? "统计中…" : st.missing ? "路径不存在" : st.error ? "失败：" + st.error
         : `${fmtBytes(st.size)} · ${fmtNum(st.files)} 个文件${st.truncated ? "（下限）" : ""}`;
+      const age = st && st.ts && S.state.now ? S.state.now - st.ts : null;      // 数字是多久之前量的：让人知道「实时」到什么程度
       return h("tr", { "data-key": "loc:" + i }, h("td", {}, l.label || "-"), h("td", {}, tag(LOC_ROLE[l.role] || l.role || "地址", l.role === "primary" ? "kind-train" : "")),
         h("td", {}, l.storage || "-"), h("td", {}, l.path ? h("code", {}, l.path) : "（路径已隐藏）", l.note ? h("div", { class: "id" }, l.note) : null),
-        h("td", { class: "num" }, sTxt), h("td", {}, st ? (st.missing ? badge("missing", NODE_ST) : st.pending ? "-" : badge("ready", NODE_ST)) : "-"));
+        h("td", { class: "num" }, sTxt, age != null && age >= 0 && age < 7 * 86400 && !st.pending ? h("div", { class: "id", "data-key": "age" }, age < 2 ? "刚刚统计" : `统计于 ${fmtDur(age)}前`) : null), h("td", {}, st ? (st.missing ? badge("missing", NODE_ST) : st.pending ? "-" : badge("ready", NODE_ST)) : "-"));
     })))) : noteLine("未记录存放地址（请填写 locations；有备份请写多条）");
   const rows = Object.entries(m).filter(([k, v]) => !META_HIDE.has(k) && v != null && v !== "");
   const dk = `dn:${g.id}/${n.id}`;

@@ -82,6 +82,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 |---|---|---|
 | 流程每一步是什么、起什么作用 | `sb.define("pipelines", id, {...})`；每个节点写 `role`（一句话作用，直接显示在图上）+ `desc`。**设计前先读 `patterns.md` P0**（粒度、文字长度上限、分组、状态来源） | `references/schema.md` §1、`patterns.md` P0 |
 | 每份数据：在哪、什么意义 | `sb.define("datasets", id, {...})`：`locations`（**有几个副本写几条**）+ `source` + `purpose` + `processing` | §2 |
+| 会自己变、脚本不一定来得及说的东西（脚本被杀、文件在涨、目录在长） | 任务用 `sb.track`（自带 pid，进程没了几秒内标「进程已退出」）；数据地址写 `auto_stat`，目录按需写 `refresh`；先问「谁知道它变了」 | `patterns.md` P14 |
 | 同一个东西有多个版本（数据 / Pipeline / 展示模块 / 校验集 / 任务 / 资源的 v1.0、v2.0…） | 每个版本各建一个条目，写同一个 `family` + 各自的 `version`（字符串）；页面上自动收成「最新版 + 可展开的历史版本」 | `patterns.md` P8b、§2 |
 | 模型训练 | `sb.task(id, kind="train", model=…, datasets=[…], hparams=…)` + `sb.point(id, "loss", step, v)` | §3 |
 | 流程执行（每个数据要素到哪一步） | `sb.task(id, kind="run", pipeline=…)` + `sb.item(id, 要素id, step=节点id, status=…)` | §4 |
@@ -269,6 +270,8 @@ flowchart LR
 - 并行支线上的要素：把「要素 × 支线」各当一个要素（P4）。图里**不能有环**，「重试」的表达方式见 P6。
 - 同一任务的普通进度每 60 秒才写入时间线一次（状态变化必写）；调试可设 `SB_EVENT_GAP=1`。
 - `running` 超过 `stale_after`（默认 300s）无上报会标「疑似停滞」；长耗时步骤要设大 `stale_after` 或定时心跳。
+- 任务带了 `pid` 且进程已不存在、状态却还是 `running`：页面标「进程已退出」并进首页「需要关注」（任务状态本身不改）。`sb.track` 默认带 pid；**脚本在容器里而看板在容器外时不要设 pid**（会误报），设 `SB_PROC_CHECK=0` 或 `SB_NO_PID=1`。
+- 数据地址 `auto_stat` 的数字不是实时的：文件约 3 秒、目录默认 5 分钟，页面写着「统计于 N 前」。别为了「实时」把目录的 `refresh` 设得很小（共享盘上逐文件累加很贵）。
 - 曲线每条最多 300 点（自动抽稀）；`datasets` 列表是**整体替换**（更新用量要传完整列表）。
 - 对外监听（`--host 0.0.0.0`）时，数据 `path` 默认不返回给浏览器，写接口需要 `SB_TOKEN`。
 - 资源池里的 `used_by` / 分配可以链接到任务；`replica_of` 表示备份关系，`auth_ref` 表示服务用哪把 Key。

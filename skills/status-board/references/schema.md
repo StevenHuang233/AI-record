@@ -66,7 +66,7 @@
   表头带一句话说明。数据几十份时关系图会挤成一团，用 `"list"` 更清楚。页面上随时可以切换，这个字段只是决定默认用哪种。
   用了 `"list"` 却没写 `groups` 时，全部资产归到「未分组」一块。
 - **地址是核心**：`locations` 每条必须有 `path`；`role`：`primary backup mirror remote cache`。**有双地址/多副本就写多条**。
-- `auto_stat: true`（在某条 location 上，路径须是**服务所在机器**可访问的绝对路径）：后台统计实际大小与文件数，缓存 5 分钟；主地址不存在则节点置 `missing`；≥2 个地址都统计完成时自动比对大小+文件数，显示「副本一致 / 不一致」。
+- `auto_stat: true`（在某条 location 上，路径须是**服务所在机器**可访问的绝对路径）：后台统计实际大小与文件数；主地址不存在则节点置 `missing`；**刷新节奏**：单个文件约 3 秒（`SB_STAT_FILE_TTL`），目录默认 5 分钟（要逐文件累加，较贵），地址上写 `refresh`（秒，5~86400）可单独调快或调慢这一个地址；页面在实测大小下写「统计于 N 前」，让你知道数字有多新（见 `patterns.md` P14）；≥2 个地址都统计完成时自动比对大小+文件数，显示「副本一致 / 不一致」。
 - `processing` 可写字符串列表，或 `{"step":"清洗","desc":"…","to":"clean"}`。页面还会自动合并「图上的入边/出边」和「Pipeline 里 reads/writes 它的步骤」，所以只需补充图和 Pipeline 表达不了的内容。
 - 页面会列出哪些任务在 `datasets[].ref` 里使用了这份数据。
 
@@ -82,6 +82,7 @@ sb.task("train-v2", kind="train", name="微调 v2", pipeline="main", node="train
 sb.task("train-v2", done=100, metrics={"loss": 1.9},
         datasets=[{"name": "标注数据", "ref": "main/labels", "role": "训练集", "count": 40000, "used": 4000}])
 sb.point("train-v2", "loss", 100, 1.9)          # 追加曲线点，最多 8 条曲线，每条 300 点
+sb.task("train-v2", status="running", **sb.self_proc())   # 带上本进程的 pid / host / pid_start（sb.track 默认已带）：进程没了还写着运行中，页面几秒内标「进程已退出」
 sb.task("train-v2", status="done")
 ```
 
@@ -400,4 +401,4 @@ JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `titl
 
 - 启动：`python3 server.py --port <p>`（默认只监听 127.0.0.1，并校验 Host）。对外监听必须 `export SB_TOKEN=…`，否则写接口关闭，且不向浏览器返回数据真实路径（`SB_SHOW_PATHS=1` 可开启）。
 - 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`（coll 含 `reviews`）、`POST /api/milestone`、`POST /api/review/<id>/marks`、`POST /api/resources/<池id>/<资源id>`（更新用量）；读样本 `GET /api/review/<id>?view=&page=&size=&rule=`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
-- 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_BUDGET` `SB_REVIEW_MAX_ROWS` `SB_REVIEW_BUDGET` `SB_PROBE_TTL`。
+- 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_FILE_TTL` `SB_STAT_BUDGET` `SB_PROC_CHECK`（设 0 关闭进程存活检查）`SB_NO_PID`（设 1 让 sb.track 不带 pid） `SB_REVIEW_MAX_ROWS` `SB_REVIEW_BUDGET` `SB_PROBE_TTL`。

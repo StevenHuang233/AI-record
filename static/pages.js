@@ -85,8 +85,9 @@ function taskMini(t, o = {}) {
   if (t.status === "running" && t.eta != null) facts.push(h("span", { "data-key": "f-eta" }, "剩余 ", h("b", {}, fmtDur(t.eta))));
   return h("a", { class: `card mini task st-${t.status}`, href: hrefOf("task", t.id), "data-key": "tm:" + t.id, "data-fade": 1 },
     h("div", { class: "task-head" }, tag(TASK_KIND[kind] || kind, `kind-${kind}`), h("span", { class: "name", title: t.name || t.id }, t.name || t.id), verTags(t, o),
+      t.dead ? h("span", { class: "badge st-failed", title: "进程已不存在，但任务还写着运行中" }, "进程已退出") : null,
       t.stale ? h("span", { class: "badge stale" }, "疑似停滞") : null, badge(t.status, TASK_ST)),
-    h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))),
+    h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale || t.dead }), h("span", { class: "pct" }, fmtPct(t.progress))),
     h("div", { class: "kv" }, facts),
     t.message ? h("div", { class: "msg" }, clip(t.message, 90)) : null);
 }
@@ -137,7 +138,7 @@ function moduleMini(m, o = {}) {
 
 const taskHistText = (t) => (t.vversion || t.name || t.id) + `（${TASK_ST[t.status] || t.status}）`;
 /* 还在跑 / 排队 / 疑似停滞的历史版本不能被收起来看不见：force 为真时那一组自动展开 */
-const taskNeedsEyes = (t) => t.status === "running" || t.status === "queued" || t.stale;
+const taskNeedsEyes = (t) => t.status === "running" || t.status === "queued" || t.stale || t.dead;
 const tasksGrid = (ts, key, fold = true) => (ts.length ? h("div", { class: "tasks", "data-key": key },
   fold ? versionedCards(ts, { scope: "tasks", card: taskMini, force: taskNeedsEyes, label: taskHistText }) : ts.map((t) => taskMini(t))) : null);
 const sortActive = (ts) => [...ts].sort((a, b) => ((a.status === "running" || a.status === "queued") ? 0 : 1) - ((b.status === "running" || b.status === "queued") ? 0 : 1));
@@ -148,6 +149,7 @@ function attention(st) {
   for (const t of st.tasks) {
     if (isHist(t)) continue;                           // 被新版本取代的历史任务：失败 / 停滞都是过去的事
     if (t.status === "failed") out.push([`${TASK_KIND[t.kind || "job"]}「${t.name || t.id}」失败${t.message ? "：" + clip(t.message, 50) : ""}`, hrefOf("task", t.id), "failed"]);
+    else if (t.dead) out.push([`${TASK_KIND[t.kind || "job"]}「${t.name || t.id}」进程已退出（PID ${t.pid}），但任务仍是运行中`, hrefOf("task", t.id), "failed"]);
     else if (t.stale) out.push([`${TASK_KIND[t.kind || "job"]}「${t.name || t.id}」疑似停滞（${fmtDur(t.idle)} 无心跳）`, hrefOf("task", t.id), "stale"]);
   }
   for (const g of st.datasets) {

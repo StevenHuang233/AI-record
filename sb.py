@@ -27,6 +27,7 @@ import time
 import urllib.error
 import urllib.request
 
+import procs
 import sbstore as store
 
 ID_RE = store.ID_RE
@@ -143,6 +144,13 @@ def rm_task(task_id: str):
     return store.delete_task(task_id)
 
 
+def self_proc() -> dict:
+    """当前进程的身份（pid / host / pid_start），并进 sb.task(...) 即可让看板发现「进程没了但任务还在运行」：
+        sb.task("x", status="running", **sb.self_proc())
+    sb.track 默认已经带上，不需要手写。只在看板与脚本在同一台机器时有意义。"""
+    return procs.self_fields()
+
+
 def _safe_task(task_id, **fields):
     """上报失败不能拖垮业务脚本。"""
     try:
@@ -158,6 +166,9 @@ def track(iterable, task_id: str, total=None, every: float = 1.0, **fields):
             total = len(iterable)
         except TypeError:
             total = None
+    if os.environ.get("SB_NO_PID") != "1":
+        for k, v in procs.self_fields().items():
+            fields.setdefault(k, v)                 # 带上自己的进程身份：被 kill -9 / OOM 时几秒内就能在页面上看到
     _safe_task(task_id, status="running", done=0, total=total, **fields)
     n, last = 0, time.time()
     try:
@@ -218,6 +229,7 @@ def main(argv=None) -> int:
     t.add_argument("--model", help="模型名")
     t.add_argument("--pipeline")
     t.add_argument("--node")
+    t.add_argument("--pid", type=int, help="被监督进程的 PID（与看板同一台机器）：进程没了但任务还是运行中，页面会立刻标出「进程已退出」")
     t.add_argument("--family", help="同一个任务的多个版本写同一个值（如 train-main）；页面上只显示最新版，历史版本收起")
     t.add_argument("--version", help="版本号字符串，如 v2.0")
     t.add_argument("--stale-after", type=float, dest="stale_after", help="多少秒无心跳判为停滞")
@@ -287,6 +299,12 @@ def main(argv=None) -> int:
         if a.cmd == "task":
             f = {k: getattr(a, k) for k in ("name", "kind", "status", "done", "total", "progress", "unit",
                                               "message", "pipeline", "node", "stale_after", "family", "version")}
+            if a.pid:
+                f["pid"] = a.pid
+                f.setdefault("host", procs.hostname())
+                info = procs.proc_info(a.pid)
+                if info:
+                    f["pid_start"] = info["start"]      # 用起始时刻防止 pid 被别的进程复用后误判为「还活着」
             if a.model:
                 f["model"] = {"name": a.model}
             if a.metric:

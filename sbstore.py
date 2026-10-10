@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 
+import procs as _procs
 import versions as _ver
 
 try:
@@ -342,6 +343,12 @@ def clean_task_patch(p: dict) -> dict:
         elif k in ("family", "version"):
             _ver.check_fv({k: v}, "任务")
             out[k] = v.strip()
+        elif k in ("pid", "pid_start"):                  # 进程存活检查：见 procs.py
+            if isinstance(v, bool) or not isinstance(v, int) or not (0 < v <= _procs.PID_MAX if k == "pid" else 0 <= v <= 2 ** 63):
+                raise ValueError(f"任务的 {k} 必须是正整数")
+            out[k] = v
+        elif k == "host":
+            out[k] = _str(v, k, 64)
         elif k == "kind":
             if v not in TASK_KINDS:
                 raise ValueError(f"kind 必须是 {list(TASK_KINDS)}")
@@ -807,6 +814,10 @@ def clean_definition(coll: str, obj) -> dict:
                 raise ValueError(f"节点 {n['id']} 的 status 非法: {n['status']}")
             if coll == "datasets":
                 _ver.check_fv(n, f"节点 {n['id']}")
+                for lc in n.get("locations") or []:
+                    rf = lc.get("refresh") if isinstance(lc, dict) else None
+                    if rf is not None and (isinstance(rf, bool) or not isinstance(rf, (int, float)) or not 5 <= rf <= 86400):
+                        raise ValueError(f"节点 {n['id']} 的 locations[].refresh 必须是 5~86400 之间的秒数（目录统计较贵，别设太小）")
             for k in _ver.DERIVED:
                 n.pop(k, None)
         edges = obj.get("edges", [])

@@ -5,8 +5,10 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -15,6 +17,7 @@ sys.path.insert(0, ROOT)
 
 import sbstore  # noqa: E402
 import versions  # noqa: E402
+import procs  # noqa: E402
 
 
 def graph(nodes, groups=None, edges=None, coll="datasets"):
@@ -289,6 +292,186 @@ class VersionWriteAndLintTests(_StateCase):
         self.assertIn("都是「v1」", w)
         self.assertIn("tasks(train)", w)
         self.assertIn("tasks(eval)", w)
+
+
+class ProcLivenessTests(unittest.TestCase):
+    """procs.py：任务带 pid 时，能发现「进程没了但任务还写着运行中」。用真实子进程测。"""
+
+    def _spawn(self):
+        return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+    def test_self_fields_identify_this_process(self):
+        me = procs.self_fields()
+        self.assertEqual(me["pid"], os.getpid())
+        self.assertTrue(me["host"])
+        self.assertEqual(procs.check(me["pid"], me["host"], me.get("pid_start")), "alive")
+
+    def test_killed_child_is_dead_even_before_it_is_reaped(self):
+        p = self._spawn()
+        try:
+            info = procs.proc_info(p.pid)
+            host = procs.hostname()
+            self.assertEqual(procs.check(p.pid, host, info["start"] if info else None), "alive")
+            p.kill()
+            deadline = time.time() + 3
+            while time.time() < deadline and procs.check(p.pid, host, None) != "dead":
+                time.sleep(0.05)
+            self.assertEqual(procs.check(p.pid, host, None), "dead")       # 僵尸进程 kill(0) 仍成功，靠 /proc 的状态识别
+        finally:
+            p.kill()
+            p.wait()
+        self.assertEqual(procs.check(p.pid, procs.hostname(), None), "dead")
+
+    def test_reused_pid_is_dead(self):
+        me = procs.self_fields()
+        if "pid_start" not in me:
+            self.skipTest("没有 /proc，无法判断 pid 复用")
+        self.assertEqual(procs.check(os.getpid(), me["host"], me["pid_start"] + 12345), "dead")
+        self.assertEqual(procs.check(os.getpid(), me["host"], None), "alive")       # 没记起始时刻就不做复用判断
+
+    def test_other_host_is_not_checked(self):
+        self.assertEqual(procs.check(1, "some-other-host", None), "remote")
+
+    def test_dangerous_pids_never_reach_kill(self):
+        for bad in (0, -1, -999, True, "123", 2.0, None, 2 ** 31):
+            self.assertEqual(procs.check(bad, procs.hostname(), None), "unknown", repr(bad))
+
+    def test_check_can_be_turned_off(self):
+        os.environ["SB_PROC_CHECK"] = "0"
+        try:
+            self.assertEqual(procs.check(os.getpid(), procs.hostname(), None), "unknown")
+        finally:
+            del os.environ["SB_PROC_CHECK"]
+
+
+class TaskPidTests(_StateCase):
+    """任务的 pid / host / pid_start：写入校验，以及服务端汇总出 dead。"""
+
+    def test_pid_fields_are_validated(self):
+        sbstore.update_task("t1", {"pid": os.getpid(), "host": "h", "pid_start": 5})
+        for bad in ({"pid": 0}, {"pid": -3}, {"pid": True}, {"pid": "12"}, {"pid": 1.5}, {"pid": 2 ** 31}, {"pid_start": -1}, {"pid_start": "x"}):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                sbstore.update_task("t2", bad)
+
+    def _view(self, **t):
+        import server
+        base = {"id": "x", "status": "running", "updated_at": time.time(), "started_at": time.time() - 5}
+        return server._task_view({**base, **t}, time.time(), True)
+
+    def test_running_task_with_dead_pid_is_flagged(self):
+        p = subprocess.Popen([sys.executable, "-c", "pass"])
+        p.wait()
+        v = self._view(pid=p.pid, host=procs.hostname())
+        self.assertTrue(v["dead"])
+        self.assertEqual(v["proc"], "dead")
+        self.assertFalse(v["stale"])                           # 刚上报过，不是心跳超时
+        self.assertEqual(v["status"], "running")               # 不擅自改写任务状态
+
+    def test_running_task_with_live_pid_is_not_flagged(self):
+        v = self._view(pid=os.getpid(), host=procs.hostname())
+        self.assertFalse(v["dead"])
+        self.assertEqual(v["proc"], "alive")
+
+    def test_finished_task_is_never_checked(self):
+        for st in ("done", "failed"):
+            v = self._view(pid=2 ** 22 - 7, host=procs.hostname(), status=st)
+            self.assertFalse(v["dead"], st)
+            self.assertNotIn("proc", v)
+
+    def test_task_without_pid_is_untouched(self):
+        v = self._view()
+        self.assertFalse(v["dead"])
+        self.assertNotIn("proc", v)
+
+    def test_history_replay_does_not_check(self):
+        import server
+        t = {"id": "x", "status": "running", "updated_at": time.time(), "pid": 2 ** 22 - 7, "host": procs.hostname()}
+        self.assertFalse(server._task_view(dict(t), time.time(), False)["dead"])
+
+    def test_remote_pid_is_not_flagged(self):
+        v = self._view(pid=2 ** 22 - 7, host="another-machine")
+        self.assertFalse(v["dead"])
+        self.assertEqual(v["proc"], "remote")
+
+    def test_sb_track_records_identity_and_can_opt_out(self):
+        import sb
+        for _ in sb.track(range(2), "tr1"):
+            pass
+        t = sbstore.read_json(sbstore.item_path("tasks", "tr1"))
+        self.assertEqual(t["pid"], os.getpid())
+        os.environ["SB_NO_PID"] = "1"
+        try:
+            for _ in sb.track(range(2), "tr2"):
+                pass
+        finally:
+            del os.environ["SB_NO_PID"]
+        self.assertNotIn("pid", sbstore.read_json(sbstore.item_path("tasks", "tr2")))
+
+
+class StatRefreshTests(_StateCase):
+    """数据地址的实测：单个文件几秒刷新、目录按 refresh；过期后先返回旧值、不阻塞。"""
+
+    def setUp(self):
+        super().setUp()
+        import server
+        self.server = server
+        self._ttl = (server.FILE_TTL, server.STAT_TTL)
+        server.FILE_TTL = 0.3
+        self.tmp = tempfile.mkdtemp(prefix="sb-stat-")
+
+    def tearDown(self):
+        self.server.FILE_TTL, self.server.STAT_TTL = self._ttl
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        super().tearDown()
+
+    def _settle(self, path, ttl=None):
+        for _ in range(200):
+            r = self.server.path_stat(path, ttl)
+            if not r.get("pending"):
+                return r
+            time.sleep(0.02)
+        self.fail("统计一直没有完成")
+
+    def test_growing_file_is_refreshed_quickly_and_never_blocks(self):
+        f = os.path.join(self.tmp, "g.jsonl")
+        with open(f, "w") as fh:
+            fh.write("a\n" * 10)
+        r = self._settle(f)
+        self.assertEqual((r["size"], r["kind"]), (20, "file"))
+        with open(f, "a") as fh:
+            fh.write("b\n" * 10)
+        self.assertEqual(self.server.path_stat(f)["size"], 20)             # 还没过期：直接用缓存
+        time.sleep(0.4)
+        t0 = time.time()
+        stale = self.server.path_stat(f)
+        self.assertLess(time.time() - t0, 0.05)                            # 过期后立刻返回，不等重新统计
+        self.assertEqual(stale["size"], 20)                                # 旧值先顶着
+        time.sleep(0.2)
+        self.assertEqual(self.server.path_stat(f)["size"], 40)
+
+    def test_directory_uses_long_ttl_unless_refresh_given(self):
+        d = os.path.join(self.tmp, "d")
+        os.makedirs(d)
+        with open(os.path.join(d, "x"), "w") as fh:
+            fh.write("1" * 100)
+        r = self._settle(d)
+        self.assertEqual((r["size"], r["kind"]), (100, "dir"))
+        with open(os.path.join(d, "y"), "w") as fh:
+            fh.write("2" * 50)
+        time.sleep(0.4)
+        self.assertEqual(self.server.path_stat(d)["size"], 100)             # 默认 300 秒：目录统计较贵，不因文件 TTL 而重扫
+        self.assertEqual(self.server.path_stat(d, 0.2)["size"], 100)        # 显式更短的 ttl：先返回旧值并触发后台刷新
+        time.sleep(0.4)
+        self.assertEqual(self.server.path_stat(d, 0.2)["size"], 150)
+
+    def test_refresh_is_validated_on_define(self):
+        def node(rf):
+            return graph([data_node("a", brief="b", locations=[{"path": "/tmp/x", "role": "primary", "auto_stat": True, "refresh": rf}])])
+        for good in (5, 30, 12.5, 86400):
+            self._define("datasets", "g", node(good))
+        for bad in (1, 4.9, 0, -3, 86401, "10", True):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                self._define("datasets", "g", node(bad))
 
 
 class LayoutTests(unittest.TestCase):

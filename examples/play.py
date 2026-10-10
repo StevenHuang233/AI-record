@@ -64,6 +64,7 @@ def main():
 
     os.environ["SB_STATE_DIR"] = dest
     os.environ.setdefault("SB_EVENT_GAP", "0.4")          # 模拟时事件密一点，回放更好看
+    os.environ["SB_NO_PID"] = "1"                          # 范例是模拟数据：播放器一退出，任务里记的 pid 就不存在了，会被误报成「进程已退出」
     sys.path.insert(0, ROOT)
     import sb  # noqa: E402
 

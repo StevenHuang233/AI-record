@@ -164,6 +164,7 @@ sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2
 | 能力 | 怎么用 | 文档 |
 |---|---|---|
 | 数据分组与清单 | 数据图 `groups` 分组、节点 `brief` 一句话说明（缺 `brief` 体检会提醒）、`layout: "list"` 按分组列成清单 | schema §2 |
+| 实时捕捉会变动的东西 | 先问「谁知道它变了」：脚本上报的是推；没人上报的靠看板自己去看——**进程存活**（任务带 `pid`，`sb.track` 默认带；脚本被 kill / OOM 后约 2.5 秒页面标「进程已退出」）、**单个文件**约 3 秒刷新、**目录**默认 5 分钟（地址上 `refresh` 可调）、本机 GPU / CPU / 磁盘约 5 秒。页面在数字下写「统计于 N 前」。慢盘不会拖住页面（过期先返回旧值、后台刷新） | `patterns.md` P14 |
 | 多个版本（全站通用） | 数据 / Pipeline / 展示模块 / 校验集 / 任务 / 资源，凡是同一个东西有 v1.0、v2.0 这样的迭代，每个版本一个条目，写同一个 `family` + 各自的 `version`；列表里只显示最新版，历史版本收在「▸ 历史版本 N 个」后面（默认收起，点选历史版本时自动展开；还在运行的历史任务自动展开）。被取代的历史版本不会让页面报「异常」 | `patterns.md` P8b、schema 顶部 |
 | 分面筛选与矩阵 | 校验集 `facets`（≤6 个）+ `matrix`：按字段筛，两个分面交叉出矩阵（每格条数与指标中位数） | schema §7b-2 |
 | 分组浏览 | 校验集 `group_by`（最多两级，`catalog` 可列出没有样本的分组）、`summary`（卡片收起后显示的摘要，≤4 个字段名） | `sbstore.py` 的 `_check_review`（schema 里还没有专门章节） |
@@ -229,11 +230,12 @@ ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页
 
 ## 版本记录
 
-当前版本 **v1.0.3**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
+当前版本 **v1.0.4**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
 
 | 版本 | 提交 | 内容 |
 |---|---|---|
-| v1.0.3 | 本次 | 版本收纳推广到全站：Pipeline / 展示模块 / 校验集 / 任务 / 资源 / 视频图库侧栏，都用同一对 `family` + `version`；最新版由服务端统一计算（新增 `versions.py`），历史版本不计入异常 / 需要关注；新增 `versions` 范例；修复图库侧栏按字符串排版本号（`v1.9` 排在 `v1.10` 前）的问题 |
+| v1.0.4 | 本次 | 实时捕捉策略：任务带 `pid`，进程没了还写着运行中时几秒内标「进程已退出」（新增 `procs.py`，`sb.track` 默认带 pid，命令行 `--pid`）；单个文件的实测大小约 3 秒刷新、目录的 `refresh` 可按地址调；数据地址显示「统计于 N 前」；`patterns.md` P14 |
+| v1.0.3 | `7c17769` | 版本收纳推广到全站：Pipeline / 展示模块 / 校验集 / 任务 / 资源 / 视频图库侧栏，都用同一对 `family` + `version`；最新版由服务端统一计算（新增 `versions.py`），历史版本不计入异常 / 需要关注；新增 `versions` 范例；修复图库侧栏按字符串排版本号（`v1.9` 排在 `v1.10` 前）的问题 |
 | v1.0.2 | `73f4ba4` | 数据的多个版本：`family` + `version`，清单里收成「最新版 + 可展开的历史版本」；`ml-training` 范例演示 v1.0 / v2.0；4 条版本相关体检；`patterns.md` P8b |
 | v1.0.1 | `0171913` | 收纳按钮补全（任务卡、步骤详情、数据详情、资源管理页）；Pipeline 设计策略（`patterns.md` P0）与三条新体检规则（`name` / `role` 过长、`kind` 非法、节点重复入组）；修正范例里一个被截断的 `role` |
 | v1.0.0 | 整合版本 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图（含自由布局、Pipeline 步骤内嵌展示块）、额外只读资源根、Gander 评测脚本集、测试套件；README 增加用途、使用方法与实践经验 |
@@ -314,6 +316,7 @@ review.py    成果校验：规则引擎、后台扫描、分面 / 分组 / 分�
 clipview.py  视频图库：把一行视频记录整理成卡片与详情
 resources.py 资源管理：密钥可用性检查（不读内容）、本机探测、健康判断
 versions.py  多个版本：family + version 的校验、排序、标注（谁是最新全站只在这里算）
+procs.py     进程存活检查：任务带 pid 时发现「进程没了但任务还在运行」
 state/       真实数据：board.json pipelines/ datasets/ modules/ reviews/ resources/ tasks/ marks/ usage/ assets/ timeline.jsonl（新 clone 为空）
 examples/    范例（虚构内容）+ play.py 播放器；播放结果写在 examples/.play/（已忽略）
 tests/       测试：test_status_board.py、test_asset_roots_http.py（纯 Python）、test_static.mjs、e2e_gallery.mjs（需要 Node）
