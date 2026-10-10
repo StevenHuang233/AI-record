@@ -44,7 +44,7 @@ RES_STATES = ("active", "disabled", "revoked", "maintenance")
 RES_PERIODS = ("day", "month", "year", "total")
 MAX_ALLOCS = 30
 PROTECTED_META = {"path", "auto_stat"}
-MARK_VERDICTS = ("pass", "fail", "doubt")
+MARK_VERDICTS = ("pass", "weak", "fail", "doubt")
 MAX_MARKS = 20000
 REVIEW_KINDS = ("model_output", "cleaned_data", "generic")
 FIELD_TYPES = ("text", "long", "json", "image", "audio", "video", "diff")
@@ -534,6 +534,28 @@ def _check_review(obj: dict) -> None:
     ps = obj.get("page_size")
     if ps is not None and (isinstance(ps, bool) or not isinstance(ps, int) or not 1 <= ps <= 50):
         raise ValueError("page_size 必须是 1~50 的整数")
+    # group_by：分组浏览（左侧可折叠的「一级 → 二级」导航），最多两级。
+    # 每级 {key: 按哪个字段分组, label: 取显示名称用的字段(可选), catalog: [{parent, v, label}] 没有样本的分组也列出来(可选)}
+    gb = obj.get("group_by")
+    if gb is not None:
+        if not isinstance(gb, list) or not 1 <= len(gb) <= 2:
+            raise ValueError("group_by 必须是 1~2 项的列表（每项 {key, label, catalog}）")
+        for g in gb:
+            if not isinstance(g, dict) or not isinstance(g.get("key"), str) or not g["key"] or len(g["key"]) > 80:
+                raise ValueError("group_by 每项必须有字符串 key")
+            if g.get("label") is not None and (not isinstance(g["label"], str) or len(g["label"]) > 80):
+                raise ValueError("group_by.label 必须是字符串")
+            cat = g.get("catalog")
+            if cat is not None:
+                if not isinstance(cat, list) or len(cat) > 60:
+                    raise ValueError("group_by.catalog 必须是不超过 60 项的列表")
+                for c in cat:
+                    if not isinstance(c, dict) or not isinstance(c.get("v"), str) or len(c["v"]) > 40 \
+                            or any(k not in ("parent", "v", "label") or not isinstance(x, str) or len(x) > 80 for k, x in c.items()):
+                        raise ValueError("group_by.catalog 每项必须是 {parent, v, label} 的字符串对象")
+    sm = obj.get("summary")
+    if sm is not None and (not isinstance(sm, list) or len(sm) > 4 or any(not isinstance(x, str) or not x or len(x) > 80 for x in sm)):
+        raise ValueError("summary 必须是不超过 4 个字段名的列表（卡片收起后显示的摘要）")
 
 
 _RES_COMMON = {"id", "name", "kind", "state", "owner", "desc", "note", "access", "tags", "used_by"}
@@ -908,7 +930,7 @@ def _marks_label(rid: str, slim: dict) -> str:
     d = read_json(item_path("reviews", rid), None) if ID_RE.match(rid) else None
     title = (d or {}).get("title") or rid if isinstance(d, dict) else rid
     c = slim["counts"]
-    return f"校验「{title}」：合格 {c['pass']} · 不合格 {c['fail']} · 存疑 {c['doubt']}"
+    return f"校验「{title}」：合理 {c['pass']} · 偏弱 {c['weak']} · 判错 {c['fail']} · 不确定 {c['doubt']}"
 
 
 def _usage_view(u: dict) -> dict:
@@ -1133,7 +1155,7 @@ def define(coll: str, item_id: str, obj) -> dict:
 def set_marks(rid: str, entries: list) -> dict:
     """批量写入 / 清除成果校验的人工标记。
 
-    entries: [{"line": 第几行(从 1 开始), "v": "pass"|"fail"|"doubt"|None(清除), "note": 备注, "tags": [..], "h": 行哈希(可选)}]
+    entries: [{"line": 第几行(从 1 开始), "v": "pass"|"weak"|"fail"|"doubt"|None(清除), "note": 备注, "tags": [..], "h": 行哈希(可选)}]
     返回汇总 {"counts": {pass, fail, doubt}, "n": 已标记总数}。"""
     check_id(rid)
     if not isinstance(entries, list) or not entries or len(entries) > 500:

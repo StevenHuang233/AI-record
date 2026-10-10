@@ -1,6 +1,6 @@
 "use strict";
 /* 视图：把服务端状态渲染成离线 DOM（由 util.patch 增量合并进页面）。所有文本经 textContent 写入。 */
-import { h, s, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, assetUrl,
+import { h, s, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, assetUrl, foldBtn, foldBody, isFolded,
          TASK_ST, NODE_ST, ITEM_ST, TASK_KIND, PIPE_KIND, DATA_KIND, LOC_ROLE, REPLICA, META_LABEL, META_HIDE } from "./util.js";
 import { S, resolveRef, findGraph } from "./store.js";
 import { drawGraph, orderedNodes, ancestors, nodeSize } from "./graph.js";
@@ -301,12 +301,13 @@ export function pipelineCard(g) {
       h("div", {}, h("div", { class: "sn" }, n.name || n.id), n.role ? h("div", { class: "sr" }, n.role) : null, n.desc ? h("div", { class: "sd" }, n.desc) : null),
       badge(n.status, NODE_ST));
   }));
-  return h("div", { class: "card", id: "pl-" + g.id, "data-key": "pl:" + g.id, "data-fade": 1 },
-    h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), exTag(g), badge(st, NODE_ST), h("span", { class: "kv" }, `${doneN} / ${g.nodes.length} 步完成`), bar(prog, st, { sm: true }), h("span", { class: "pct" }, fmtPct(prog))),
-    g.description ? h("p", { class: "desc" }, g.description) : null,
+  const fk = "pl:" + g.id;
+  return h("div", { class: "card" + (isFolded(fk) ? " folded" : ""), id: "pl-" + g.id, "data-key": "pl:" + g.id, "data-fade": 1 },
+    h("div", { class: "g-head" }, foldBtn(fk), h("h3", {}, g.title || g.id), exTag(g), badge(st, NODE_ST), h("span", { class: "kv" }, `${doneN} / ${g.nodes.length} 步完成`), bar(prog, st, { sm: true }), h("span", { class: "pct" }, fmtPct(prog))),
+    foldBody(fk, [g.description ? h("p", { class: "desc" }, g.description) : null,
     (g.groups || []).some((x) => x.nodes.length) ? h("div", { class: "grp-legend" }, g.groups.filter((x) => x.nodes.length).map((x, i) => h("span", { class: `gl gc-${i % 5}`, "data-key": "gg" + i }, h("b", {}, x.name), x.desc ? "：" + x.desc : ""))) : null,
     el, legend(NODE_ST, ["pending", "running", "done", "failed", "skipped"]),
-    h("div", { class: "cols" }, pipeNodeDetail(g, g.nodes.find((n) => n.id === sel)), h("div", { class: "panel", "data-key": "steps" }, h("h4", {}, "各步骤的作用（按流程顺序）"), steps)));
+    h("div", { class: "cols" }, pipeNodeDetail(g, g.nodes.find((n) => n.id === sel)), h("div", { class: "panel", "data-key": "steps" }, h("h4", {}, "各步骤的作用（按流程顺序）"), steps))]));
 }
 
 /* 一行数据资产（清单视图和分组模块共用） */
@@ -331,12 +332,15 @@ export function datasetList(g, sel, key, maxSz) {
                    ...(g.nodes.some((n) => !used.has(n.id))
                      ? [{ name: "未分组", desc: "", ids: g.nodes.filter((n) => !used.has(n.id)).map((n) => n.id) }] : [])];
   const nmap = new Map(g.nodes.map((n) => [n.id, n]));
-  return buckets.map((b, i) => h("div", { class: "card dgroup", "data-key": "dg:" + i, "data-fade": 1 },
-    h("div", { class: "g-head" }, h("h3", {}, b.name), h("span", { class: "kv" }, `${b.ids.length} 份`),
-      b.desc ? h("span", { class: "desc" }, "：" + b.desc) : null),
-    h("div", { class: "tbl-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, ASSET_COLS.map((c) => h("th", {}, c)))),
-      h("tbody", {}, b.ids.filter((id) => nmap.has(id)).map((id) => assetRow(g, nmap.get(id), sel, key, maxSz)))))));
+  return buckets.map((b, i) => {
+    const gk = "dg:" + g.id + ":" + b.name;
+    return h("div", { class: "card dgroup" + (isFolded(gk) ? " folded" : ""), "data-key": "dg:" + i, "data-fade": 1 },
+      h("div", { class: "g-head" }, foldBtn(gk), h("h3", {}, b.name), h("span", { class: "kv" }, `${b.ids.length} 份`),
+        b.desc ? h("span", { class: "desc" }, "：" + b.desc) : null),
+      foldBody(gk, [h("div", { class: "tbl-wrap" }, h("table", {},
+        h("thead", {}, h("tr", {}, ASSET_COLS.map((c) => h("th", {}, c)))),
+        h("tbody", {}, b.ids.filter((id) => nmap.has(id)).map((id) => assetRow(g, nmap.get(id), sel, key, maxSz)))))]));
+  });
 }
 
 export function datasetCard(g) {
@@ -363,14 +367,16 @@ export function datasetCard(g) {
   const toggle = h("a", { class: "xlink", "data-key": "view-toggle", "data-act": "dsview", "data-a1": key,
     "data-a2": asList ? "graph" : "list", role: "button", tabindex: 0, title: "切换显示方式" },
     asList ? "切成关系图" : "切成分组清单");
-  const overview = h("div", { class: "card", id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
-    h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
+  const fk = "ds:" + g.id;
+  const overview = h("div", { class: "card" + (isFolded(fk) ? " folded" : ""), id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
+    h("div", { class: "g-head" }, foldBtn(fk), h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
       issues.length ? h("span", { class: "badge st-failed" }, `${issues.length} 项异常`) : null, noLoc ? h("span", { class: "badge stale" }, `${noLoc} 项未记录地址`) : null, toggle),
-    g.description ? h("p", { class: "desc" }, g.description) : null,
+    foldBody(fk, [g.description ? h("p", { class: "desc" }, g.description) : null,
     stores.length ? h("div", { class: "mt" }, h("div", { class: "kv" }, "主存储位置占比"),
       h("div", { class: "stack" }, stores.map(([k, v], i) => h("span", { class: `sp-${i % 6}`, "data-key": "sp" + i, style: { width: (100 * v / total) + "%" }, title: `${k}: ${fmtBytes(v)}` }))),
       h("div", { class: "legend" }, stores.map(([k, v], i) => h("span", { "data-key": "sl" + i }, h("i", { class: `sp-${i % 6}` }), `${k} ${fmtBytes(v)}（${(100 * v / total).toFixed(1)}%）`)))) : null,
-    legend(NODE_ST, ["ready", "building", "stale", "missing", "failed"]));
+    legend(NODE_ST, ["ready", "building", "stale", "missing", "failed"])]));
+  if (isFolded(fk)) return h("div", { class: asList ? "ds-list" : "ds-graph", "data-key": (asList ? "dsl:" : "dsg:") + g.id }, overview);
   if (asList) {
     return h("div", { class: "ds-list", "data-key": "dsl:" + g.id },
       overview,
@@ -459,10 +465,12 @@ function blockEl(b, key) {
 
 export function moduleCard(m) {
   if (m.error) return h("div", { class: "card err", "data-key": "md:" + m.id }, `${m.id}: ${m.error}`);
-  return h("div", { class: "card", id: "md-" + m.id, "data-key": "md:" + m.id, "data-fade": 1 }, h("h3", {}, m.title || m.id, " ", exTag(m)), m.description ? h("p", { class: "desc" }, m.description) : null,
+  const fk = "md:" + m.id;
+  return h("div", { class: "card" + (isFolded(fk) ? " folded" : ""), id: "md-" + m.id, "data-key": "md:" + m.id, "data-fade": 1 }, h("h3", {}, foldBtn(fk), m.title || m.id, " ", exTag(m)),
+    foldBody(fk, [m.description ? h("p", { class: "desc" }, m.description) : null,
     asArr(m.blocks).map((b, i) => {
       let el;
       try { el = blockEl(b, `${m.id}-${i}`); } catch (e) { el = h("div", { class: "err" }, `模块块渲染失败: ${e.message}`); }
       return h("div", { class: "blk", "data-key": "b" + i }, el);
-    }));
+    })]));
 }

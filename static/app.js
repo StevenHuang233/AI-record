@@ -1,11 +1,11 @@
 "use strict";
 /* 入口：取状态 → 按 URL hash 路由出当前子页面 → 生成离线 DOM → patch 进页面。
    实时模式每 2.5 秒轮询；时间线模式取历史时刻的状态。切换子页面时清空旧页面再绘制（新页面淡入）。 */
-import { h, patch, onAction, fmtTime } from "./util.js";
+import { h, patch, onAction, fmtTime, toggleFold } from "./util.js";
 import { S } from "./store.js";
 import { parseRoute, navKeyOf, renderPage } from "./pages.js";
 import { TL, mount, setEvents } from "./timeline.js";
-import { setOnChange, setView, setRule, gotoPage, mark, setFacet, clearFacets, fetchPage, RV } from "./review.js";
+import { setOnChange, setView, setRule, gotoPage, mark, setFacet, clearFacets, fetchPage, RV, setGroup, toggleDim, dimAll, toggleCard, cardAll, toggleDesc } from "./review.js";
 
 const POLL_MS = 2500;
 const NAV = [["home", "首页", "#/"], ["train", "训练", "#/train"], ["run", "流水线执行", "#/run"], ["eval", "评测", "#/eval"],
@@ -73,10 +73,17 @@ async function pullTimeline() {
 onAction("selnode", (key, id) => { S.sel[key] = id; render(); });
 /* 数据图：在「分组清单」和「关系图」之间切换（记住每张图的选择） */
 onAction("dsview", (key, mode) => { S.sel[`${key}#view`] = mode; render(); });
+onAction("fold", (key, _a2, _el, e) => { e.stopPropagation(); toggleFold(key); render(); });
 /* 成果校验工作台的交互 */
 onAction("rvview", (k) => setView(k));
 onAction("rvrule", (id) => setRule(id));
 onAction("rvpage", (p) => gotoPage(parseInt(p, 10)));
+onAction("rvgroup", (g1, g2) => setGroup(g1, g2));
+onAction("rvdimtoggle", (v1) => toggleDim(v1));
+onAction("rvdimall", (mode) => dimAll(mode));
+onAction("rvcard", (line, _a2, _el, e) => { e.stopPropagation(); toggleCard(parseInt(line, 10)); });
+onAction("rvcardall", (mode) => cardAll(mode));
+onAction("rvdesc", () => toggleDesc());
 onAction("rvsel", (line, _a2, el, e) => {
   if (e.target.closest("button, a, video, audio, input, textarea")) return;       // 点按钮/媒体时不改选中
   RV.sel = parseInt(line, 10); render();

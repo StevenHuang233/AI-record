@@ -198,7 +198,20 @@ def median(vals: list) -> float:
     return float(s[mid]) if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
 
 
-def _scan(full: str, rules: list, key: tuple, conf: dict | None = None):
+def group_cfg(d) -> list:
+    """校验集定义里的 group_by：最多两级，每级 {key, label(可选，取名字用的字段)}。"""
+    gb = (d or {}).get("group_by") or []
+    return [g for g in gb if isinstance(g, dict) and isinstance(g.get("key"), str)][:2]
+
+
+def _gval(row, key) -> str:
+    found, v = get_path(row, key)
+    if not found or v is None or (isinstance(v, str) and not v.strip()):
+        return "（空）"
+    return str(v)[:40]
+
+
+def _scan(full: str, rules: list, key: tuple, conf: dict | None = None, gb: list | None = None):
     t0 = time.time()
     conf = conf or {}
     fails = {}                    # 行号(1 起) -> [失败规则序号]
@@ -208,6 +221,10 @@ def _scan(full: str, rules: list, key: tuple, conf: dict | None = None):
     truncated = False
     facets = conf.get("facets") or []
     acc = {"values": [[[], {}, {}] for _ in facets], "lines": [{} for _ in facets], "cells": {}, "line": 0}
+    gids: list = []               # 第 i 行属于哪个分组（下标 = 行号-1；-1 = 不是合法行）
+    gtab: list = []               # 分组表：每项是 (一级值, 二级值)
+    gindex: dict = {}
+    glabels: dict = {}            # (层级, 值) -> 显示名称
     try:
         with open(full, "rb") as f:
             while True:
@@ -236,7 +253,22 @@ def _scan(full: str, rules: list, key: tuple, conf: dict | None = None):
                 if row is None:
                     bad_json += 1
                     fails[total] = [-1]            # -1 = 这一行本身不是合法的 JSON 对象
+                    if gb:
+                        gids.append(-1)
                     continue
+                if gb:
+                    tup = tuple(_gval(row, g["key"]) for g in gb)
+                    gi = gindex.get(tup)
+                    if gi is None:
+                        gi = gindex[tup] = len(gtab)
+                        gtab.append(tup)
+                    gids.append(gi)
+                    for lv, g in enumerate(gb):
+                        lk = g.get("label")
+                        if lk and (lv, tup[lv]) not in glabels:
+                            ok, lv_ = get_path(row, lk)
+                            if ok and lv_ is not None:
+                                glabels[(lv, tup[lv])] = str(lv_)[:60]
                 failed = []
                 for i, r in enumerate(rules):
                     if not eval_rule(r, row, state):
@@ -251,20 +283,23 @@ def _scan(full: str, rules: list, key: tuple, conf: dict | None = None):
         res = {"done": True, "rows": total, "bad_json": bad_json, "fails": fails, "per_rule": per_rule,
                "truncated": truncated, "elapsed": time.time() - t0, "ts": time.time(),
                "facet_values": [v[0] for v in acc["values"]], "facet_lines": acc["lines"], "matrix_cells": acc["cells"]}
+        if gb:
+            res.update({"gids": gids, "gtab": gtab, "glabels": glabels})
     except OSError as e:
         res = {"done": True, "error": e.__class__.__name__, "ts": time.time()}
     with _lock:
         _scans[key] = res
 
 
-def scan_status(full: str, rules: list, conf: dict | None = None, wait: float = 0) -> dict:
-    """返回缓存的扫描结果；没有则启动后台扫描并返回 pending。conf（分面 / 矩阵）变了要重新扫描。
+def scan_status(full: str, rules: list, conf: dict | None = None, gb: list | None = None, wait: float = 0) -> dict:
+    """返回缓存的扫描结果；没有则启动后台扫描并返回 pending。conf（分面 / 矩阵）或 gb（分组）变了要重新扫描。
     wait > 0：最多等这么久让后台扫描完成（测试用；接口永远用默认值，不阻塞）。"""
+    gb = gb or []
     try:
         st = os.stat(full)
     except OSError:
         return {"error": "FileNotFoundError"}
-    key = (full, st.st_mtime_ns, st.st_size, rules_fp(rules), rules_fp(conf or {}))
+    key = (full, st.st_mtime_ns, st.st_size, rules_fp(rules), rules_fp(conf or {}), rules_fp(gb))
     with _lock:
         res = _scans.get(key)
         if res is not None:
@@ -274,7 +309,7 @@ def scan_status(full: str, rules: list, conf: dict | None = None, wait: float = 
             _scans.pop(k, None)
         if len(_scans) > 40:
             _scans.pop(next(iter(_scans)), None)
-    threading.Thread(target=_scan, args=(full, rules, key), kwargs={"conf": conf or {}}, daemon=True).start()
+    threading.Thread(target=_scan, args=(full, rules, key), kwargs={"conf": conf or {}, "gb": gb}, daemon=True).start()
     if wait > 0:
         deadline = time.time() + wait
         while time.time() < deadline:
@@ -398,31 +433,65 @@ def read_rows(full: str, lines: list) -> dict:
     return out
 
 
-def line_numbers(scan: dict, view: str, marks: dict, page: int, size: int, total_rows):
+def line_numbers(scan: dict, view: str, marks: dict, page: int, size: int, total_rows, gset=None):
     """按筛选视图计算这一页应该读哪些行号，以及这个视图下共有多少行。
-    view: all | fail（规则不通过）| pass（规则全通过）| unmarked（没人看过）| mpass | mfail | mdoubt（人工判定）"""
+    view: all | fail（规则不通过）| pass（规则全通过）| unmarked（没人看过）| mpass | mweak | mfail | mdoubt（人工判定）
+    gset: 不为 None 时只看这个分组里的行（和视图叠加）。"""
     mv = lambda ln: (marks.get(str(ln)) or {}).get("v")  # noqa: E731
     fails = scan.get("fails") or {}
+    n = total_rows or 0
     if view == "all":
-        n = total_rows or 0
-        base = range(1, n + 1)
-        sel_total = n
-        start = page * size
-        return list(base[start:start + size]), sel_total
-    if view == "fail":
+        if gset is None:
+            start = page * size
+            return list(range(1, n + 1)[start:start + size]), n
+        pool = sorted(gset)
+    elif view == "fail":
         pool = sorted(fails)
     elif view == "pass":
-        n = total_rows or 0
         pool = [i for i in range(1, n + 1) if i not in fails]
     elif view == "unmarked":
-        n = total_rows or 0
         pool = [i for i in range(1, n + 1) if not mv(i)]
-    elif view in ("mpass", "mfail", "mdoubt"):
-        want = {"mpass": "pass", "mfail": "fail", "mdoubt": "doubt"}[view]
+    elif view in ("mpass", "mweak", "mfail", "mdoubt"):
+        want = {"mpass": "pass", "mweak": "weak", "mfail": "fail", "mdoubt": "doubt"}[view]
         pool = sorted(int(k) for k, m in marks.items() if isinstance(m, dict) and m.get("v") == want)
     else:
         pool = []
+    if gset is not None:
+        pool = [i for i in pool if i in gset]
     return pool[page * size:(page + 1) * size], len(pool)
+
+
+def group_lines(scan: dict, g1: str, g2: str) -> set:
+    """属于「一级=g1（可空）且二级=g2（可空）」分组的行号集合。"""
+    gtab, gids = scan.get("gtab") or [], scan.get("gids") or []
+    ok = [((not g1 or t[0] == g1) and (not g2 or (len(t) > 1 and t[1] == g2))) for t in gtab]
+    return {i + 1 for i, g in enumerate(gids) if g >= 0 and ok[g]}
+
+
+def group_tree(scan: dict, marks: dict, gb: list):
+    """分组导航要的数据：每个分组的样本数、各档人工标记数、显示名称。没配 group_by 或扫描没完成就是 None。"""
+    if not gb or scan.get("pending") or scan.get("error") or scan.get("gids") is None:
+        return None
+    gtab, gids, labels = scan.get("gtab") or [], scan.get("gids") or [], scan.get("glabels") or {}
+    n = [0] * len(gtab)
+    mk = [{"pass": 0, "weak": 0, "fail": 0, "doubt": 0} for _ in gtab]
+    for g in gids:
+        if g >= 0:
+            n[g] += 1
+    for k, m in marks.items():
+        try:
+            ln = int(k)
+        except ValueError:
+            continue
+        v = m.get("v") if isinstance(m, dict) else None
+        if v in ("pass", "weak", "fail", "doubt") and 1 <= ln <= len(gids) and gids[ln - 1] >= 0:
+            mk[gids[ln - 1]][v] += 1
+    items = []
+    for i, t in enumerate(gtab):
+        items.append({"k": list(t), "l": [labels.get((lv, t[lv]), "") for lv in range(len(t))], "n": n[i], "m": mk[i]})
+    items.sort(key=lambda x: x["k"])
+    return {"by": [{"key": g["key"], "label": g.get("label") or "", "catalog": g.get("catalog") or []} for g in gb],
+            "items": items}
 
 
 def page(rid: str, d: dict, q: dict) -> dict:
@@ -432,7 +501,8 @@ def page(rid: str, d: dict, q: dict) -> dict:
         return {"error": f"源文件不存在: {d['source']}"}
     rules = d.get("rules") or []
     conf = {"facets": d.get("facets") or [], "matrix": d.get("matrix") or {}}
-    scan = scan_status(full, rules, conf, wait=float(q.get("_wait") or 0))
+    gb = group_cfg(d)
+    scan = scan_status(full, rules, conf, gb, wait=float(q.get("_wait") or 0))
     picked, picked_idx = ({}, {}) if (scan.get("pending") or scan.get("error")) else _facet_filter(conf, scan, q)
     marks_file = store.read_json(store.item_path("marks", rid), None) or {}
     marks = marks_file.get("marks") or {}
@@ -442,7 +512,7 @@ def page(rid: str, d: dict, q: dict) -> dict:
     except (TypeError, ValueError):
         size, pg = 10, 0
     view = q.get("view") or "all"
-    if view not in ("all", "fail", "pass", "unmarked", "mpass", "mfail", "mdoubt"):
+    if view not in ("all", "fail", "pass", "unmarked", "mpass", "mweak", "mfail", "mdoubt"):
         view = "all"
     if rid and q.get("rule") not in (None, ""):
         view = "fail"
@@ -452,21 +522,24 @@ def page(rid: str, d: dict, q: dict) -> dict:
         rows_total = _quick_count(full)
     lines, sel_total = ([], 0)
     rule_filter = q.get("rule")
+    g1, g2 = (q.get("g1") or "")[:80], (q.get("g2") or "")[:80]
+    gset = None
+    if (g1 or g2) and gb and not pending and scan.get("gids") is not None:
+        gset = group_lines(scan, g1, g2)
     if rule_filter not in (None, "") and not pending:
         idx = next((i for i, r in enumerate(rules) if r["id"] == rule_filter), None)
         pool = sorted(ln for ln, fl in (scan.get("fails") or {}).items() if idx is not None and idx in fl)
-    elif view in ("fail", "pass") and pending:
+        if gset is not None:
+            pool = [ln for ln in pool if ln in gset]
+    elif (view in ("fail", "pass") or ((g1 or g2) and gb)) and pending:
         pool = []
     else:
-        pool, _ = line_numbers(scan, view, marks, 0, max(rows_total or 0, 1), rows_total)
-        pool = list(pool) if view != "all" else list(range(1, (rows_total or 0) + 1))
+        pool, _ = line_numbers(scan, view, marks, 0, max(rows_total or 0, 1), rows_total, gset)
+        pool = list(pool)
     if picked_idx:                       # 分面筛选：和其他筛选是「并且」的关系
         fmap = scan.get("facet_lines") or []
         pool = [ln for ln in pool if all((fmap[k] or {}).get(ln) == i for k, i in picked_idx.items() if k < len(fmap))]
-    if rule_filter not in (None, "") and not pending:
-        lines, sel_total = pool[pg * size:(pg + 1) * size], len(pool)
-    else:
-        lines, sel_total = pool[pg * size:(pg + 1) * size], len(pool)
+    lines, sel_total = pool[pg * size:(pg + 1) * size], len(pool)
     got = read_rows(full, lines)
     items = []
     for ln in lines:
@@ -486,12 +559,13 @@ def page(rid: str, d: dict, q: dict) -> dict:
             if m.get("h") is not None and g.get("h") is not None and m["h"] != g["h"]:
                 it["mark_stale"] = True               # 源文件这一行变了：标记可能已过期
         items.append(it)
-    counts = {"pass": 0, "fail": 0, "doubt": 0}
+    counts = {"pass": 0, "weak": 0, "fail": 0, "doubt": 0}
     for m in marks.values():
         if isinstance(m, dict) and m.get("v") in counts:
             counts[m["v"]] += 1
     out = {"rows": rows_total, "view": view, "page": pg, "size": size, "selected": sel_total, "items": items,
-           "marked": counts, "scan": _public_scan(scan, rules), "mtime": os.path.getmtime(full), "picked": picked}
+           "marked": counts, "scan": _public_scan(scan, rules), "mtime": os.path.getmtime(full), "picked": picked,
+           "groups": group_tree(scan, marks, gb), "g": [g1, g2]}
     if not (scan.get("pending") or scan.get("error")):
         if conf["facets"]:
             out["facets"] = facet_summary(conf, scan, picked, picked_idx)
@@ -549,7 +623,7 @@ def summary(rid: str, d: dict) -> dict:
     """列表页/首页用的轻量汇总：只读缓存，不触发扫描之外的重活。"""
     full = store.resolve_asset(d.get("source"))
     marks_file = store.read_json(store.item_path("marks", rid), None) or {}
-    c = {"pass": 0, "fail": 0, "doubt": 0}
+    c = {"pass": 0, "weak": 0, "fail": 0, "doubt": 0}
     for m in (marks_file.get("marks") or {}).values():
         if isinstance(m, dict) and m.get("v") in c:
             c[m["v"]] += 1
@@ -560,6 +634,6 @@ def summary(rid: str, d: dict) -> dict:
     out["rows"] = _quick_count(full)
     rules = d.get("rules") or []
     if rules:
-        sc = scan_status(full, rules)
+        sc = scan_status(full, rules, {"facets": d.get("facets") or [], "matrix": d.get("matrix") or {}}, group_cfg(d))
         out["scan"] = _public_scan(sc, rules)
     return out

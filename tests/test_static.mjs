@@ -7,7 +7,7 @@
 import { writeFileSync, mkdtempSync, rmSync, copyFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let fails = 0;
@@ -34,6 +34,10 @@ export const badge = () => h("span", {}, "b");
 export const bar = () => h("div", {});
 export const tag = (x) => h("span", {}, String(x));
 export const assetUrl = (x) => String(x);
+export const FOLDED = new Set();                                    // 收纳：测试里用它模拟「已收起」
+export const isFolded = (k) => FOLDED.has(k);
+export const foldBtn = (k) => h("button", { class: "fold" }, FOLDED.has(k) ? "▸" : "▾");
+export const foldBody = (k, kids) => (FOLDED.has(k) ? null : kids);
 export const NODE_ST = { ready: "就绪", building: "生成中", stale: "过期", missing: "缺失", failed: "失败",
                          pending: "排队", running: "进行中", done: "完成", skipped: "跳过" };
 export const ITEM_ST = { pending: "排队", running: "进行中", done: "完成", failed: "失败", skipped: "跳过" };
@@ -128,6 +132,25 @@ try {
   ok("默认仍是关系图", all(el2).some((n) => n.tag === "svg"));
 } catch (e) {
   ok("分组清单渲染", false, e.message);
+}
+
+/* 卡片收纳：收起后正文（关系图 / 分组清单表格）不渲染，标题行保留 */
+try {
+  const U = await import(pathToFileURL(join(dir, "__stub.js")).href);
+  const V = await import(join(dir, "views.js"));
+  const gk = { id: "gx", title: "收纳测试", nodes: [{ id: "a", name: "A", status: "ready" }], edges: [], groups: [{ name: "组一", nodes: ["a"] }] };
+  U.FOLDED.add("ds:gx");
+  const folded = V.datasetCard(gk);
+  ok("收纳：数据图收起后不画关系图", !all(folded).some((n) => n.tag === "svg"));
+  ok("收纳：数据图收起后标题仍在", JSON.stringify(folded).includes("收纳测试"));
+  U.FOLDED.clear();
+  ok("收纳：展开后恢复关系图", all(V.datasetCard(gk)).some((n) => n.tag === "svg"));
+  U.FOLDED.add("dg:gx:组一");
+  const lst = V.datasetList(gk, null, "datasets/gx", 1);
+  ok("收纳：分组块收起后没有表格", !all(lst).some((n) => n.tag === "table") && JSON.stringify(lst).includes("组一"));
+  U.FOLDED.clear();
+} catch (e) {
+  ok("收纳渲染", false, e.message);
 }
 
 /* 注：review.js 直接用 document 绑键盘事件，Node 里没有 DOM，前端渲染不在这里测。

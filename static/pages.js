@@ -5,12 +5,12 @@
    #/pipelines                 Pipeline 列表          #/pipelines/<图>       结构图详情     #/pipelines/<图>/<步骤>  步骤子页面
    #/datasets                  数据图列表             #/datasets/<图>        数据图详情     #/datasets/<图>/<资产>   数据资产子页面
    #/modules                   展示模块列表           #/modules/<id>         模块详情 */
-import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND } from "./util.js";
+import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND, foldBtn, foldBody, isFolded } from "./util.js";
 import { S, findGraph } from "./store.js";
 import { orderedNodes, nodeSize } from "./graph.js";
 import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
 import { TL } from "./timeline.js";
-import { reviewWorkbench, enter as reviewEnter, leave as reviewLeave } from "./review.js";
+import { reviewWorkbench, descBlock, enter as reviewEnter, leave as reviewLeave } from "./review.js";
 import { poolMini, poolPage, itemPage, resHref, resourceAttention, resourceTileSub, resourceCount, RES_KIND } from "./resources.js";
 
 const TASK_KINDS = ["train", "run", "eval", "job"];
@@ -318,10 +318,11 @@ function reviewPage(r) {
   }
   if (f.model) meta.push(h("span", { "data-key": "m-model" }, "模型 ", h("b", {}, f.model)));
   if (f.note) meta.push(h("span", { "data-key": "m-note" }, f.note));
-  const head = h("div", { class: "card", "data-key": "rvhead" },
-    h("div", { class: "g-head" }, h("h3", {}, d.title || d.id), tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), exTag(d)),
-    d.description ? h("p", { class: "desc" }, d.description) : null,
-    meta.length ? h("div", { class: "kv" }, meta) : null);
+  const head = h("div", { class: "card" + (isFolded("rvhead:" + d.id) ? " folded" : ""), "data-key": "rvhead" },
+    h("div", { class: "g-head" }, foldBtn("rvhead:" + d.id), h("h3", {}, d.title || d.id), tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), exTag(d)),
+    foldBody("rvhead:" + d.id, [
+      d.description ? descBlock(d.description) : null,
+      meta.length ? h("div", { class: "kv" }, meta) : null]));
   let body;
   if (!live) {
     reviewLeave();
