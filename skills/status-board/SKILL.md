@@ -189,7 +189,7 @@ flowchart TD
 | 视频 / 图片已在共享盘，不想复制 | 启动参数 `--asset-root 别名=路径`，样本写 `别名/相对路径` | §7b |
 | 校验页要两级分组浏览 | 校验集 `group_by`（≤2 级，每级 `{key,label,catalog}`）、`summary`（≤4 个字段名） | `sbstore.py` 的 `_check_review`（schema 暂无专门章节） |
 | 一行一条视频的成果，要图库视图 | 校验集 `gallery` 块 | §7b-3 |
-| 论文用的转移矩阵热力图 / 状态流转图 | 展示模块块 `heatmap`、`flow` | §7 |
+| 论文用的转移矩阵热力图 / 状态流转图（环形 / 枢纽图用 `layout: "free"`） | 展示模块块 `heatmap`、`flow`；Pipeline 节点也可带 `blocks` 在步骤详情里内嵌图 | §7 |
 
 - 人工标记是**四档**：`pass` 合理 / `weak` 偏弱 / `fail` 判错 / `doubt` 不确定。校验页和图库的键位一致：`1` `2` `3` `4`，`N` 写备注。
 - 同一个校验集可以同时配 `gallery`、`facets` / `matrix`、`group_by`。
