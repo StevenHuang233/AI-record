@@ -1,6 +1,6 @@
 ---
 name: status-board
-description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有四个形状各异的范例，只用来对照字段写法，不可照抄内容。
+description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有五个形状各异的范例，只用来对照字段写法，不可照抄内容。
 ---
 
 # status-board
@@ -32,7 +32,7 @@ flowchart LR
 
 ## 范例怎么用（重点：别被范例带偏）
 
-`examples/` 里有四个范例，**拓扑、领域、上报手法都不同，内容全是虚构的**。它们回答的是「这个字段怎么写」，不回答「你的项目长什么样」。
+`examples/` 里有五个范例，**拓扑、领域、上报手法都不同，内容全是虚构的**。它们回答的是「这个字段怎么写」，不回答「你的项目长什么样」。
 
 ```mermaid
 flowchart TD
@@ -86,6 +86,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 | 评测 | `sb.task(id, kind="eval", model=…, datasets=[评测集+地址], scores={…})` | §5 |
 | 迭代/版本节点 | `sb.milestone("标题", note="…")` | §6 |
 | 数据集展示、效果展示 | `sb.define("modules", id, {"blocks": […]})` | §7 |
+| 逐条审阅一批成果（模型生成的结果、清洗出来的数据） | `sb.review_rows(rows, "x.jsonl")` + `sb.define("reviews", id, {source, fields, rules, from…})`；人工标记 `sb.mark(id, 行号, "pass/fail/doubt")` | §7b、`patterns.md` P12 |
 
 ## 标准工作流
 
@@ -137,6 +138,24 @@ flowchart LR
 
 **D. 做效果展示 / 数据集展示** → 写 `modules` 定义（`references/schema.md` §7）；图片、音视频、jsonl 放资源目录（默认 `state/assets/`，`SB_ASSETS_DIR` 可改），用相对路径引用。
 
+**E. 校验一批成果**（模型生成的结果 / 清洗出来的数据）
+
+```mermaid
+flowchart TD
+    A["任务产出了一批成果"] --> B["写成 jsonl 放进资源目录<br/>sb.review_rows(rows, 路径)"]
+    B --> C["sb.define('reviews', id, ...)<br/>fields 决定看什么、rules 决定自动抓什么、from 写清来源"]
+    C --> D["sb.py validate"]
+    D -->|"有警告"| C
+    D -->|"通过"| E["把 #/review/id 地址告诉用户"]
+    E --> F["用户先看规则统计 → 复核「规则不通过」→ 抽样看「规则通过」"]
+    F --> G["人工标记 合格 / 不合格 / 存疑（页面快捷键 1 2 3，或 sb.mark）"]
+    G --> H["sb.milestone 记录校验结论"]
+```
+
+- **description 里写清判定标准**——"怎样算合格"是人工标记的依据，也是下一个人接手时的依据。
+- 规则只负责把注意力引到可疑样本上；语义对不对这类判断交给人工，不要硬写成规则。
+- **不要替用户做人工标记**：`sb.mark` 是给「用户明确交代了判定方法」的场景（例如按某规则批量标记）用的；默认由用户在页面上看了再标。
+
 ## 页面是子页面嵌套的
 
 汇报时直接给链接比口头描述有用：`http://<host>:<port>/#/task/<id>`。
@@ -148,8 +167,10 @@ flowchart LR
     H --> PL["#/pipelines"] --> PD["#/pipelines/图"] --> PN["#/pipelines/图/步骤"]
     H --> DL["#/datasets"] --> DD["#/datasets/图"] --> DN["#/datasets/图/资产"]
     H --> ML["#/modules"] --> MD["#/modules/id"]
+    H --> RL["#/review"] --> RD["#/review/id 校验工作台"]
     PN -.-> TD
     DN -.-> TD
+    RD -.-> TD
 ```
 
 ## 常见坑
@@ -161,6 +182,7 @@ flowchart LR
 - `running` 超过 `stale_after`（默认 300s）无上报会标「疑似停滞」；长耗时步骤要设大 `stale_after` 或定时心跳。
 - 曲线每条最多 300 点（自动抽稀）；`datasets` 列表是**整体替换**（更新用量要传完整列表）。
 - 对外监听（`--host 0.0.0.0`）时，数据 `path` 默认不返回给浏览器，写接口需要 `SB_TOKEN`。
+- 校验集的 `source` 必须在资源目录内、以 `.jsonl` 结尾；规则**没有正则**，只有声明式 op（见 §7b 表）；回放历史时看不到样本明细。
 
 ## 修改看板本身时
 

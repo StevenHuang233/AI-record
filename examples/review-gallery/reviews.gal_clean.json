@@ -1,0 +1,21 @@
+{
+  "_example": "review-gallery",
+  "title": "示例：文本清洗前后对比",
+  "description": "【范例】校验「清洗出来的数据」：每条样本是一对「清洗前 / 清洗后」，用 diff 字段直接看改了什么；规则自动抓出「清洗过头」（清洗后过短、变成空）和「根本没变」的样本，人工只需要重点看被标红的。内容是虚构的，请勿照抄。\n判定标准（示意）：清洗后应保留原文的核心信息，只去掉噪声（多余空白、标签、广告、隐私）。",
+  "kind": "cleaned_data",
+  "from": {"dataset": "gal/after", "note": "清洗规则 v3 的试跑结果"},
+  "source": "rg_clean.jsonl",
+  "page_size": 8,
+  "fields": [
+    {"type": "diff", "label": "清洗前 → 清洗后", "a": "raw", "b": "cleaned"},
+    {"label": "来源", "key": "src"},
+    {"label": "去掉的字符数", "key": "removed"}
+  ],
+  "rules": [
+    {"id": "not_empty", "field": "cleaned", "op": "nonempty", "label": "清洗后不能是空"},
+    {"id": "not_too_short", "field": "cleaned", "op": "minlen", "value": 4, "label": "清洗后至少 4 个字符", "severity": "warn"},
+    {"id": "still_has_text", "field": "cleaned", "op": "notcontains", "value": "<", "label": "不应残留 HTML 标签"},
+    {"id": "no_phone", "field": "cleaned", "op": "notcontains", "value": "13800000000", "label": "不应残留示例手机号"},
+    {"id": "id_unique", "field": "id", "op": "unique", "label": "样本 id 不重复"}
+  ]
+}

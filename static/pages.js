@@ -10,9 +10,11 @@ import { S, findGraph } from "./store.js";
 import { orderedNodes, nodeSize } from "./graph.js";
 import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
 import { TL } from "./timeline.js";
+import { reviewWorkbench, enter as reviewEnter, leave as reviewLeave } from "./review.js";
 
 const TASK_KINDS = ["train", "run", "eval", "job"];
-const LISTS = { train: "训练", run: "流水线执行", eval: "评测", job: "其他任务", pipelines: "Pipeline", datasets: "数据管理", modules: "定制模块" };
+const LISTS = { train: "训练", run: "流水线执行", eval: "评测", job: "其他任务", pipelines: "Pipeline", datasets: "数据管理", modules: "定制模块", review: "成果校验" };
+const REVIEW_KIND = { model_output: "模型生成结果", cleaned_data: "清洗后的数据", generic: "成果" };
 
 export function parseRoute(hash) {
   const raw = (hash || "").replace(/^#\/?/, "");
@@ -21,6 +23,7 @@ export function parseRoute(hash) {
   if (!a) return { page: "home", key: "home" };
   if (TASK_KINDS.includes(a) && !b) return { page: "tasks", kind: a, key: a };
   if (a === "task" && b) return { page: "task", id: b, key: `task/${b}` };
+  if (a === "review") return b ? { page: "review", id: b, key: `review/${b}` } : { page: "reviews", key: "review" };
   if (["pipelines", "datasets", "modules"].includes(a)) {
     if (!b) return { page: "list", kind: a, key: a };
     if (c && a !== "modules") return { page: "node", kind: a, gid: b, nid: c, key: `${a}/${b}/${c}` };
@@ -34,6 +37,7 @@ export function navKeyOf(r) {
   if (r.page === "home") return "home";
   if (r.page === "tasks") return r.kind;
   if (r.page === "task") { const t = S.state && S.state.tasks.find((x) => x.id === r.id); return t ? (t.kind || "job") : "home"; }
+  if (r.page === "reviews" || r.page === "review") return "review";
   if (r.kind) return r.kind;
   return "home";
 }
@@ -143,7 +147,21 @@ function attention(st) {
     }
   }
   for (const g of st.pipelines) if (!g.error) for (const n of g.nodes) if (n.status === "failed") out.push([`Pipeline「${g.title || g.id}」步骤「${n.name || n.id}」失败`, hrefOf("pipelines", `${g.id}/${n.id}`), "failed"]);
+  for (const d of st.reviews || []) {
+    if (d.error) { out.push([`校验集 ${d.id} 解析失败`, hrefOf("review", d.id), "failed"]); continue; }
+    if (d.source_error) out.push([`校验集「${d.title || d.id}」${d.source_error}`, hrefOf("review", d.id), "failed"]);
+    else if (d.scan && !d.scan.pending && !d.scan.error && d.scan.fail_rows) out.push([`校验集「${d.title || d.id}」有 ${fmtNum(d.scan.fail_rows)} 行规则不通过`, hrefOf("review", d.id), "stale"]);
+    if (d.marked && d.marked.fail) out.push([`校验集「${d.title || d.id}」已标 ${fmtNum(d.marked.fail)} 条不合格`, hrefOf("review", d.id), "failed"]);
+  }
   return out;
+}
+
+function reviewTileSub(st) {
+  const rs = (st.reviews || []).filter((d) => !d.error);
+  if (!rs.length) return "生成结果 · 清洗数据的校验";
+  const bad = rs.reduce((a, d) => a + ((d.marked && d.marked.fail) || 0), 0);
+  const seen = rs.reduce((a, d) => a + (d.marked ? d.marked.pass + d.marked.fail + d.marked.doubt : 0), 0);
+  return `已看 ${fmtNum(seen)} 条${bad ? ` · ${fmtNum(bad)} 条不合格` : ""}`;
 }
 
 function homePage(r) {
@@ -162,7 +180,8 @@ function homePage(r) {
       tile("eval", "✓", "评测", bk.eval, runningOf("eval") ? `${runningOf("eval")} 个运行中` : "评测集 · 模型 · 分数", "#/eval"),
       tile("pipelines", "⌘", "Pipeline", st.pipelines.length, "结构图与各步骤作用", "#/pipelines"),
       tile("datasets", "▤", "数据管理", nAssets, `${st.datasets.length} 张数据图 · 地址与来源`, "#/datasets"),
-      tile("modules", "❖", "定制模块", st.modules.length, "数据集与效果展示", "#/modules")),
+      tile("modules", "❖", "定制模块", st.modules.length, "数据集与效果展示", "#/modules"),
+      tile("review", "☑", "成果校验", (st.reviews || []).length, reviewTileSub(st), "#/review")),
     h("section", { "data-key": "sec:running" }, h("h2", {}, "正在运行", h("small", {}, `${running.length} 个任务`)),
       running.length ? tasksGrid(running, "run-grid") : empty("当前没有运行中的任务。")),
     h("div", { class: "two" },
@@ -249,7 +268,68 @@ function nodePage(r) {
     relSection(isP ? "该步骤的关联任务" : "使用了这份数据的任务", ts, "rel-t"));
 }
 
+/* ── 成果校验 ─────────────────────────────────────────────────────────────── */
+function reviewMini(d) {
+  if (d.error) return h("div", { class: "card err", "data-key": "rm:" + d.id }, `${d.id}: ${d.error}`);
+  const m = d.marked || { pass: 0, fail: 0, doubt: 0 }, done = m.pass + m.fail + m.doubt, total = d.rows || 0;
+  const sc = d.scan && !d.scan.pending && !d.scan.error ? d.scan : null;
+  return h("a", { class: "card mini", href: hrefOf("review", d.id), "data-key": "rm:" + d.id, "data-fade": 1 },
+    h("div", { class: "task-head" }, tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), h("span", { class: "name" }, d.title || d.id), exTag(d),
+      d.source_error ? h("span", { class: "badge st-failed" }, d.source_error) : null),
+    h("p", { class: "desc", style: { margin: "6px 0" } }, clip(d.description || "（未填写说明）", 150)),
+    h("div", { class: "pct-row" }, bar(total ? done / total : null, "running", { sm: true }), h("span", { class: "pct" }, total ? fmtPct(done / total) : "--")),
+    h("div", { class: "kv" }, h("span", {}, "样本 ", h("b", {}, total ? fmtNum(total) : "-")), h("span", {}, "已看 ", h("b", {}, fmtNum(done))),
+      h("span", { style: { color: "var(--ok)" } }, "合格 ", h("b", {}, fmtNum(m.pass))), h("span", { style: { color: "var(--bad)" } }, "不合格 ", h("b", {}, fmtNum(m.fail))),
+      h("span", { style: { color: "var(--warn)" } }, "存疑 ", h("b", {}, fmtNum(m.doubt))),
+      sc ? h("span", {}, "规则不通过 ", h("b", { style: { color: sc.fail_rows ? "var(--bad)" : "var(--ok)" } }, fmtNum(sc.fail_rows))) : null));
+}
+
+function reviewsPage(r) {
+  const items = S.state.reviews || [];
+  return pageShell(r, [["首页", "#/"], [LISTS.review, null]],
+    pageTitle(LISTS.review, `${items.length} 个 · 看模型生成的结果、清洗出来的数据：规则自动检查 + 人工逐条标记`),
+    items.length ? h("div", { class: "tasks", "data-key": "grid" }, items.map(reviewMini))
+      : h("div", { class: "empty" }, "暂无校验集。用 sb.define 写入：", " ", h("code", {}, "python3 sb.py define reviews <id> file.json")));
+}
+
+function reviewPage(r) {
+  const d = (S.state.reviews || []).find((x) => x.id === r.id);
+  if (!d) { reviewLeave(); return notFound(r, `校验集「${r.id}」`); }
+  if (d.error) return pageShell(r, [["首页", "#/"], [LISTS.review, "#/review"], [d.id, null]], h("div", { class: "card err" }, d.error));
+  const live = S.state.live;
+  const meta = [];
+  const f = d.from || {};
+  if (f.task) {
+    const t = S.state.tasks.find((x) => x.id === f.task);
+    meta.push(h("span", { "data-key": "m-task" }, "来自任务 ", t ? h("a", { class: "xlink", href: hrefOf("task", t.id) }, t.name || t.id) : h("b", {}, f.task)));
+  }
+  if (f.dataset) {
+    const [gid, nid] = String(f.dataset).split("/");
+    const g = findGraph("datasets", gid), n = g && !g.error ? g.nodes.find((x) => x.id === nid) : null;
+    meta.push(h("span", { "data-key": "m-ds" }, "来自数据 ", n ? h("a", { class: "xlink", href: hrefOf("datasets", f.dataset) }, n.name || nid) : h("b", {}, f.dataset)));
+  }
+  if (f.model) meta.push(h("span", { "data-key": "m-model" }, "模型 ", h("b", {}, f.model)));
+  if (f.note) meta.push(h("span", { "data-key": "m-note" }, f.note));
+  const head = h("div", { class: "card", "data-key": "rvhead" },
+    h("div", { class: "g-head" }, h("h3", {}, d.title || d.id), tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), exTag(d)),
+    d.description ? h("p", { class: "desc" }, d.description) : null,
+    meta.length ? h("div", { class: "kv" }, meta) : null);
+  let body;
+  if (!live) {
+    reviewLeave();
+    const m = d.marked || {};
+    body = h("div", { class: "card", "data-key": "rvhist" }, h("div", { class: "warn" }, "正在回放历史：样本明细读的是当前文件，和历史时刻对不上，所以这里只显示当时的人工校验汇总。"),
+      h("div", { class: "kv" }, h("span", {}, "合格 ", h("b", {}, fmtNum(m.pass || 0))), h("span", {}, "不合格 ", h("b", {}, fmtNum(m.fail || 0))), h("span", {}, "存疑 ", h("b", {}, fmtNum(m.doubt || 0)))),
+      h("div", { class: "id" }, "点底部「实时」回到现在，继续校验。"));
+  } else {
+    reviewEnter(d.id);
+    body = reviewWorkbench(d);
+  }
+  return pageShell(r, [["首页", "#/"], [LISTS.review, "#/review"], [d.title || d.id, null]], head, body);
+}
+
 export function renderPage(r) {
+  if (r.page !== "review") reviewLeave();
   try {
     switch (r.page) {
       case "home": return homePage(r);
@@ -258,6 +338,8 @@ export function renderPage(r) {
       case "list": return listPage(r);
       case "detail": return detailPage(r);
       case "node": return nodePage(r);
+      case "reviews": return reviewsPage(r);
+      case "review": return reviewPage(r);
       default: return notFound(r, "页面");
     }
   } catch (e) {

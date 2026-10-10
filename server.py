@@ -22,6 +22,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
+import review
 import sbstore as store
 
 STATIC = os.path.join(store.ROOT, "static")
@@ -40,26 +41,9 @@ TIMELINE_MAX = int(os.environ.get("SB_TIMELINE_MAX", "5000"))
 CONFIG = {"token": "", "writable": True, "allowed_hosts": set(LOOPBACK), "loopback": True, "show_paths": True}
 
 
-# ── 资源目录（图片 / 音视频 / jsonl 样本）─────────────────────────────────────
-def assets_dir() -> str:
-    return os.path.realpath(os.environ.get("SB_ASSETS_DIR") or os.path.join(store.state_dir(), "assets"))
-
-
-def resolve_asset(rel):
-    """把相对路径解析到资源目录内；越界（.. / 软链指向外部）一律返回 None。"""
-    if not isinstance(rel, str) or not rel or len(rel) > 400 or "\x00" in rel or "\\" in rel:
-        return None
-    parts = rel.split("/")
-    if any(p in ("", ".", "..") for p in parts):
-        return None
-    root = assets_dir()
-    full = os.path.realpath(os.path.join(root, *parts))
-    try:
-        if os.path.commonpath([root, full]) != root:
-            return None
-    except ValueError:
-        return None
-    return full
+# ── 资源目录（图片 / 音视频 / jsonl 样本）：沙箱解析在 sbstore 里，与成果校验共用 ──────
+assets_dir = store.assets_dir
+resolve_asset = store.resolve_asset
 
 
 def _shrink(o, depth=0):
@@ -371,7 +355,29 @@ def _derive_module(m: dict):
                 b["error"] = res["error"]
 
 
-def build_state(raw: dict, now: float) -> dict:
+def _derive_review(r: dict, marks_obj, live: bool):
+    """校验集在状态里只带「汇总」：人工标记数 + 规则扫描结果。样本明细走单独的 /api/review 接口。
+    回放历史时，标记汇总取时间线里当时的快照；规则扫描读的是当前文件，所以只在实时模式显示。"""
+    marks_obj = marks_obj if isinstance(marks_obj, dict) else {}
+    if "counts" in marks_obj:                          # 时间线快照：只有汇总
+        c = dict(marks_obj["counts"])
+    else:
+        c = {"pass": 0, "fail": 0, "doubt": 0}
+        for m in (marks_obj.get("marks") or {}).values():
+            if isinstance(m, dict) and m.get("v") in c:
+                c[m["v"]] += 1
+    r["marked"] = c
+    if live:
+        sm = review.summary(r["id"], r)
+        r["rows"], r["scan"] = sm.get("rows"), sm.get("scan")
+        if sm.get("error"):
+            r["source_error"] = sm["error"]
+    if not CONFIG["show_paths"]:
+        r.pop("source", None)                          # 资源目录相对路径也不对外暴露
+    r["fields"] = [{k: v for k, v in f.items() if k in ("label", "key", "type", "a", "b")} for f in r.get("fields", []) if isinstance(f, dict)]
+
+
+def build_state(raw: dict, now: float, live: bool = True) -> dict:
     board = {}
     try:
         board = store.read_json(os.path.join(store.state_dir(), "board.json"), {}) or {}
@@ -386,7 +392,7 @@ def build_state(raw: dict, now: float) -> dict:
     tasks.sort(key=lambda t: -(t.get("started_at") or t.get("created_at") or 0))
     out = {"now": now, "title": str(board.get("title") or "状态看板")[:80],
            "subtitle": str(board.get("subtitle") or "")[:200], "writable": CONFIG["writable"], "tasks": tasks}
-    for kind in store.GRAPH_KINDS + ("modules",):
+    for kind in store.GRAPH_KINDS + ("modules", "reviews"):
         items = []
         for iid, obj in raw[kind].items():
             if "__error__" in obj:
@@ -397,6 +403,8 @@ def build_state(raw: dict, now: float) -> dict:
             try:
                 if kind == "modules":
                     _derive_module(g)
+                elif kind == "reviews":
+                    _derive_review(g, raw["marks"].get(iid), live)
                 else:
                     _clean_graph(g)
                     (_derive_pipeline if kind == "pipelines" else _derive_dataset)(g, *([tasks] if kind == "pipelines" else []))
@@ -413,14 +421,14 @@ def build_state(raw: dict, now: float) -> dict:
 def state_at(at):
     """at=None 取实时；否则回放到第 at 个事件之后的状态。"""
     if at is None:
-        s = build_state(load_raw(), time.time())
+        s = build_state(load_raw(), time.time(), True)
         s["live"] = True
     else:
         evs = store.events_refresh()
         if not 0 <= at < len(evs):
             raise ValueError("at 超出范围")
         folded = store.fold(at)
-        s = build_state(folded, evs[at].get("ts") or time.time())
+        s = build_state(folded, evs[at].get("ts") or time.time(), False)
         s["live"], s["at"] = False, at
         s["event"] = store.public_event(at, evs[at])
     s["timeline"] = {"n": len(store.events_refresh())}
@@ -430,7 +438,9 @@ def state_at(at):
 # ── HTTP ──────────────────────────────────────────────────────────────────────
 ROUTE_TASK = re.compile(r"^/api/tasks/([^/]+)$")
 ROUTE_NODE = re.compile(r"^/api/(pipelines|datasets)/([^/]+)/nodes/([^/]+)$")
-ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules)/([^/]+)$")
+ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules|reviews)/([^/]+)$")
+ROUTE_REVIEW = re.compile(r"^/api/review/([^/]+)$")
+ROUTE_MARKS = re.compile(r"^/api/review/([^/]+)/marks$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -563,11 +573,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"n": n, "base": base, "reset": base > since and since > 0,
                                         "events": [store.public_event(i, evs[i]) for i in range(base, n)
                                                    if evs[i].get("type") != "noop"]})
+            m = ROUTE_REVIEW.match(path)
+            if m:
+                return self._review_page(m.group(1), {k: v[0] for k, v in q.items()})
             if path == "/healthz":
                 return self._json(200, {"ok": True})
         except ValueError as e:
             return self._json(400, {"error": str(e)})
         self._json(404, {"error": "not found"})
+
+    def _review_page(self, rid: str, q: dict):
+        """读一页校验样本。回放历史时不提供（样本读的是当前文件，和历史状态对不上）。"""
+        store.check_id(rid)
+        d = store.read_json(store.item_path("reviews", rid), None)
+        if not isinstance(d, dict):
+            return self._json(404, {"error": f"校验集 {rid} 不存在"})
+        try:
+            store.clean_definition("reviews", d)
+        except ValueError as e:
+            return self._json(400, {"error": f"校验集定义无效: {e}"})
+        res = review.page(rid, d, q)
+        if "error" in res:
+            return self._json(404, res)
+        return self._json(200, res)
 
     def do_POST(self):
         if not self._write_allowed():
@@ -580,6 +608,10 @@ class Handler(BaseHTTPRequestHandler):
             m = ROUTE_NODE.match(path)
             if m:
                 return self._json(200, store.update_node(m.group(1), m.group(2), m.group(3), self._body()))
+            m = ROUTE_MARKS.match(path)
+            if m:
+                b = self._body()
+                return self._json(200, store.set_marks(m.group(1), b.get("marks") if isinstance(b, dict) else None))
             if path == "/api/milestone":
                 b = self._body()
                 return self._json(200, store.add_milestone(b.get("title", ""), b.get("note", ""), b.get("tags")))

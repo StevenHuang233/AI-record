@@ -1,0 +1,24 @@
+{
+  "_example": "review-gallery",
+  "title": "示例：模型回答抽检",
+  "description": "【范例】校验「模型生成的结果」：每条样本有问题、回答、参考答案和一张配图。规则抓空回答、拒答、重复、响应过慢、图片缺失；人工逐条判断「回答对不对」。内容是虚构的，请勿照抄。\n判定标准（示意）：回答与参考答案语义一致即合格；拒答、空回答、答非所问一律不合格；拿不准标存疑。",
+  "kind": "model_output",
+  "from": {"model": "示例模型 v0", "note": "某批抽样推理结果"},
+  "source": "rg_answers.jsonl",
+  "page_size": 5,
+  "fields": [
+    {"label": "问题", "key": "question"},
+    {"label": "模型回答", "key": "answer", "type": "long"},
+    {"type": "diff", "label": "回答 vs 参考答案", "a": "answer", "b": "ref"},
+    {"label": "配图", "key": "img", "type": "image"},
+    {"label": "耗时(秒)", "key": "latency"}
+  ],
+  "rules": [
+    {"id": "has_answer", "field": "answer", "op": "nonempty", "label": "回答不能为空"},
+    {"id": "not_refuse", "field": "answer", "op": "notcontains", "value": "无法回答", "label": "不是拒答"},
+    {"id": "not_idk", "field": "answer", "op": "notequals", "value": "不知道", "label": "不是“不知道”"},
+    {"id": "not_slow", "field": "latency", "op": "lte", "value": 5, "label": "耗时不超过 5 秒", "severity": "warn"},
+    {"id": "img_ok", "field": "img", "op": "asset_exists", "label": "配图文件存在", "severity": "warn"},
+    {"id": "id_unique", "field": "id", "op": "unique", "label": "样本 id 不重复"}
+  ]
+}

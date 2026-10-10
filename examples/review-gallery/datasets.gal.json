@@ -1,0 +1,17 @@
+{
+  "_example": "review-gallery",
+  "title": "示例：文本清洗的前后数据",
+  "description": "【范例】只有两个节点的小数据图：用来给「成果校验」做溯源（校验集的 from.dataset 指向这里）。校验集可以独立存在，不一定要配 Pipeline。内容是虚构的，请勿照抄。",
+  "nodes": [
+    {"id": "before", "name": "清洗前文本", "kind": "raw", "desc": "清洗前的原始文本。",
+     "source": "论坛、日志、FAQ 三类来源混合抽样", "purpose": "清洗规则试跑的输入",
+     "processing": "未处理", "locations": [{"label": "主", "role": "primary", "storage": "共享盘", "path": "/example/gal/before.jsonl"}],
+     "meta": {"count": 60, "format": "jsonl"}},
+    {"id": "after", "name": "清洗后文本", "kind": "derived", "desc": "清洗规则 v3 试跑得到的结果，正在校验中。",
+     "source": "由「清洗前文本」按清洗规则 v3 处理", "purpose": "通过校验后才会进入下游使用",
+     "processing": "去多余空白、去 HTML 标签、手机号脱敏、去重复短语、广告语删除",
+     "locations": [{"label": "主", "role": "primary", "storage": "共享盘", "path": "/example/gal/after.jsonl"}],
+     "meta": {"count": 60, "format": "jsonl", "version": "规则 v3"}}
+  ],
+  "edges": [{"from": "before", "to": "after", "label": "清洗规则 v3"}]
+}

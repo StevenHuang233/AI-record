@@ -100,6 +100,31 @@ def milestone(title: str, note: str = "", tags=None) -> dict:
     return store.add_milestone(title, note, tags)
 
 
+def mark(review_id: str, line: int, verdict, note: str = "", tags=None) -> dict:
+    """给校验集的某一行打人工标记：verdict = "pass" | "fail" | "doubt" | None（清除）。line 从 1 开始。"""
+    check_id(review_id)
+    body = {"marks": [{"line": line, "v": verdict, "note": note, "tags": tags or []}]}
+    if _remote():
+        return _http("POST", f"/api/review/{review_id}/marks", body)
+    return store.set_marks(review_id, body["marks"])
+
+
+def review_rows(rows, rel_path: str) -> int:
+    """把一批成果（可迭代的 dict）写成资源目录里的 .jsonl，供 define("reviews", …) 的 source 使用；返回写入行数。
+    只能在资源目录所在机器上调用；写到 <资源目录>/<rel_path>（必须以 .jsonl 结尾，不允许 ..）。"""
+    full = store.resolve_asset(rel_path)
+    if not full or not rel_path.endswith(".jsonl"):
+        raise ValueError("rel_path 必须是资源目录内的相对路径，且以 .jsonl 结尾")
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    tmp, n = full + ".tmp", 0
+    with open(tmp, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            n += 1
+    os.replace(tmp, full)
+    return n
+
+
 def rm_task(task_id: str):
     check_id(task_id)
     if _remote():
@@ -153,6 +178,9 @@ def _cmd_show():
     raw = {c: {i: store.read_json(store.item_path(c, i), {}) for i in store.list_ids(c)} for c in store.COLLS}
     print(f"状态目录: {store.state_dir()}")
     for c in store.DEF_COLLS:
+        if c == "reviews":
+            print(f"[{c}] " + (", ".join(f"{i}(标记 {len((raw['marks'].get(i) or {}).get('marks') or {})})" for i in raw[c]) or "（空）"))
+            continue
         print(f"[{c}] " + (", ".join(f"{i}({len(o.get('nodes', o.get('blocks', [])))})" for i, o in raw[c].items()) or "（空）"))
     print(f"[tasks] {len(raw['tasks'])} 个")
     for i, t in raw["tasks"].items():
@@ -216,6 +244,13 @@ def main(argv=None) -> int:
     p.add_argument("x", type=float)
     p.add_argument("y", type=float)
 
+    k = sub.add_parser("mark", help="给校验集某一行打人工标记")
+    k.add_argument("review_id")
+    k.add_argument("line", type=int, help="第几行，从 1 开始")
+    k.add_argument("verdict", choices=["pass", "fail", "doubt", "clear"], help="clear = 清除标记")
+    k.add_argument("--note", default="")
+    k.add_argument("--tag", action="append")
+
     r = sub.add_parser("rm-task", help="删除任务")
     r.add_argument("id")
 
@@ -251,6 +286,8 @@ def main(argv=None) -> int:
             item(a.task_id, a.item_id, a.step, a.status, **{k: v for k, v in (("name", a.name), ("note", a.note)) if v})
         elif a.cmd == "point":
             point(a.task_id, a.name, a.x, a.y)
+        elif a.cmd == "mark":
+            mark(a.review_id, a.line, None if a.verdict == "clear" else a.verdict, a.note, a.tag)
         elif a.cmd == "rm-task":
             rm_task(a.id)
         elif a.cmd == "validate":

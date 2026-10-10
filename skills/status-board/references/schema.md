@@ -122,6 +122,67 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 
 资源目录默认 `state/assets/`（`SB_ASSETS_DIR` 可改）。`src`/`source` 是相对路径，禁止 `..`；图片/音视频支持 Range（可拖动播放）。`.jsonl` 不能被直接下载，只能通过 `samples` 读取（单行 >200KB 会被跳过）。
 
+## 7b. 成果校验 `reviews/<id>.json`
+
+用来**逐条审阅一批成果**：模型生成的回答、清洗出来的数据、标注结果……规则自动检查 + 人工标记（合格 / 不合格 / 存疑）。
+成果是一个 `.jsonl`（一行一个 JSON 对象），放在资源目录里。校验集**可以独立存在**，不依赖 Pipeline。
+
+```json
+{
+  "title": "标题", "description": "这批成果是什么、为什么要校验、怎么判定合格（判定标准写清楚）",
+  "kind": "model_output | cleaned_data | generic",
+  "from": {"task": "任务id", "dataset": "数据图id/节点id", "model": "模型名", "note": "批次说明"},
+  "source": "相对资源目录的路径.jsonl",
+  "page_size": 8,
+  "fields": [
+    {"label": "问题", "key": "question"},
+    {"label": "回答", "key": "answer", "type": "long"},
+    {"label": "前后对比", "type": "diff", "a": "字段A", "b": "字段B"},
+    {"label": "配图", "key": "img", "type": "image"}
+  ],
+  "rules": [
+    {"id": "has_answer", "field": "answer", "op": "nonempty", "label": "回答不能为空", "severity": "error"},
+    {"id": "short_ok", "field": "answer", "op": "maxlen", "value": 2000, "label": "不超长", "severity": "warn"}
+  ]
+}
+```
+
+**`fields`**（页面上每条样本显示什么）：`key` 支持 `a.b.0` 取嵌套值；`type`：`text`(默认) `long`(可滚动长文本) `json` `image` `audio` `video`（值是资源目录内相对路径）`diff`（用 `a`/`b` 两个字段做逐字对比，删除红、新增绿）。
+
+**`rules`**（自动检查，对**每一行**求值；不支持正则/表达式，是声明式的）：
+
+| op | 通过的条件 | 需要 `value` |
+|---|---|---|
+| `exists` | 字段存在且不是 null | 否 |
+| `nonempty` | 存在，且不是空串 / 全空白 / 空列表 / null | 否 |
+| `minlen` `maxlen` | 字符串或列表长度 ≥ / ≤ value | 数字 |
+| `contains` `notcontains` `startswith` `endswith` | 字符串包含 / 不含 / 开头 / 结尾 | 字符串 |
+| `equals` `notequals` | 等于 / 不等于 | 标量 |
+| `in` `notin` | 值在 / 不在列表里 | 列表（≤50） |
+| `gt` `gte` `lt` `lte` | 数值比较（非数值视为不通过） | 数字 |
+| `json` | 字符串能解析成 JSON | 否 |
+| `asset_exists` | 字段值是资源目录内存在的文件 | 否 |
+| `eq_field` `neq_field` | 与另一个字段相等 / 不等 | 另一个字段名 |
+| `unique` | 全文件内该字段不重复 | 否 |
+
+`severity`：`error`（默认）/ `warn`（提示级）。字段不存在时，除 `notcontains`/`notequals`/`notin`/`neq_field` 外一律判不通过——**想表达"没有就算了"请先用 `exists` 单独成规则**。
+
+**人工标记**：页面里选中样本按 `1` 合格 / `2` 不合格 / `3` 存疑（再按一次取消），`J`/`K` 上下切换，`N` 写备注。脚本也可以标：
+
+```python
+sb.review_rows(rows, "out/answers.jsonl")                 # 把一批成果写成资源目录里的 jsonl（原子替换）
+sb.define("reviews", "r1", {...})                         # 声明校验集
+sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开始，空行不计；verdict=None 清除
+```
+
+标记保存在 `state/marks/<id>.json`（记录标记时那一行的内容哈希，源文件改动后该标记会显示「可能过期」）；**时间线里只记汇总数**（合格/不合格/存疑），不带逐条明细，且同一校验集 60 秒内最多写一条事件。
+
+**注意**
+- `source` 只能是资源目录内的相对路径、以 `.jsonl` 结尾；`..`、绝对路径、指向目录外的软链都会被拒绝。
+- 规则扫描在后台线程进行，文件大时先显示「正在扫描」；超过 `SB_REVIEW_MAX_ROWS`（默认 30 万行）或 `SB_REVIEW_BUDGET`（默认 60 秒）则只扫描前面部分并标注。
+- 单行超过 200KB 会被跳过并计为"不是合法 JSON 对象"。
+- 回放历史时不显示样本明细（读的是当前文件，和历史对不上），只显示当时的标记汇总。
+
 ## 8. 命令行速查
 
 ```bash
@@ -132,6 +193,8 @@ python3 sb.py item <task> <要素> --step clean --status done
 python3 sb.py node datasets <图> <节点> --status ready --meta count=70000
 python3 sb.py define pipelines main main.json
 python3 sb.py milestone "v2 发布" --note "…" --tag v2
+python3 sb.py define reviews r1 review.json
+python3 sb.py mark r1 12 fail --note "拒答"      # verdict: pass | fail | doubt | clear
 python3 sb.py rm-task <id>
 python3 sb.py show
 python3 sb.py validate [--strict]
@@ -139,10 +202,10 @@ python3 sb.py validate [--strict]
 
 ## 9. 体检 `validate` 检查什么
 
-JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
+JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
 
 ## 10. 服务与安全
 
 - 启动：`python3 server.py --port <p>`（默认只监听 127.0.0.1，并校验 Host）。对外监听必须 `export SB_TOKEN=…`，否则写接口关闭，且不向浏览器返回数据真实路径（`SB_SHOW_PATHS=1` 可开启）。
-- 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`、`POST /api/milestone`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
-- 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_BUDGET`。
+- 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`（coll 含 `reviews`）、`POST /api/milestone`、`POST /api/review/<id>/marks`；读样本 `GET /api/review/<id>?view=&page=&size=&rule=`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
+- 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_BUDGET` `SB_REVIEW_MAX_ROWS` `SB_REVIEW_BUDGET`。

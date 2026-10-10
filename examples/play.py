@@ -22,7 +22,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-EXAMPLES = ["ml-training", "etl-fanin", "media-curation", "release-checklist"]
+EXAMPLES = ["ml-training", "etl-fanin", "media-curation", "release-checklist", "review-gallery"]
 
 
 def load_scenario(name):

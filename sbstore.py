@@ -37,9 +37,18 @@ NODE_STATUS = {"pending", "running", "done", "failed", "skipped",
 ITEM_STATUS = {"pending", "running", "done", "failed", "skipped"}
 TERMINAL = {"done", "failed", "cancelled"}
 GRAPH_KINDS = ("pipelines", "datasets")
-DEF_COLLS = ("pipelines", "datasets", "modules")
-COLLS = DEF_COLLS + ("tasks",)
+DEF_COLLS = ("pipelines", "datasets", "modules", "reviews")
+COLLS = DEF_COLLS + ("tasks", "marks")          # marks：成果校验的人工标记（每个校验集一个文件）
 PROTECTED_META = {"path", "auto_stat"}
+MARK_VERDICTS = ("pass", "fail", "doubt")
+MAX_MARKS = 20000
+REVIEW_KINDS = ("model_output", "cleaned_data", "generic")
+FIELD_TYPES = ("text", "long", "json", "image", "audio", "video", "diff")
+RULE_OPS = ("nonempty", "exists", "minlen", "maxlen", "contains", "notcontains", "startswith", "endswith",
+            "equals", "notequals", "in", "notin", "gt", "gte", "lt", "lte", "json", "asset_exists",
+            "eq_field", "neq_field", "unique")
+RULE_NEEDS_VALUE = {"minlen", "maxlen", "contains", "notcontains", "startswith", "endswith", "equals", "notequals",
+                    "in", "notin", "gt", "gte", "lt", "lte", "eq_field", "neq_field"}
 EVENT_GAP = float(os.environ.get("SB_EVENT_GAP", "60"))   # 普通进度更新写入时间线的最小间隔(秒)
 STATUS_CN = {"queued": "排队", "running": "运行中", "done": "已完成", "failed": "失败", "cancelled": "已取消"}
 MAX_SERIES_POINTS = 300
@@ -65,6 +74,28 @@ def item_path(coll: str, item_id: str) -> str:
 def ensure_dirs():
     for c in COLLS:
         os.makedirs(os.path.join(state_dir(), c), exist_ok=True)
+
+
+# ── 资源目录（图片 / 音视频 / jsonl 样本）：展示模块与成果校验共用 ─────────────────
+def assets_dir() -> str:
+    return os.path.realpath(os.environ.get("SB_ASSETS_DIR") or os.path.join(state_dir(), "assets"))
+
+
+def resolve_asset(rel):
+    """把相对路径解析到资源目录内；越界（.. / 软链指向外部）一律返回 None。"""
+    if not isinstance(rel, str) or not rel or len(rel) > 400 or "\x00" in rel or "\\" in rel:
+        return None
+    parts = rel.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        return None
+    root = assets_dir()
+    full = os.path.realpath(os.path.join(root, *parts))
+    try:
+        if os.path.commonpath([root, full]) != root:
+            return None
+    except ValueError:
+        return None
+    return full
 
 
 @contextlib.contextmanager
@@ -308,6 +339,64 @@ def clean_json(v, depth=0):
     raise ValueError("不支持的 JSON 类型")
 
 
+def _check_review(obj: dict) -> None:
+    """成果校验集定义：source 必须是资源目录内的 .jsonl；规则用声明式 op（不支持正则，避免 ReDoS）。"""
+    src = obj.get("source")
+    if not isinstance(src, str) or not src.endswith(".jsonl") or resolve_asset(src) is None:
+        raise ValueError("source 必须是资源目录内的相对路径，且以 .jsonl 结尾（不能含 .. 或绝对路径）")
+    if obj.get("kind") is not None and obj["kind"] not in REVIEW_KINDS:
+        raise ValueError(f"kind 必须是 {list(REVIEW_KINDS)}")
+    frm = obj.get("from")
+    if frm is not None:
+        if not isinstance(frm, dict) or any(not isinstance(v, (str, int, float)) for v in frm.values()):
+            raise ValueError("from 必须是 {task, dataset, model, note} 这类标量对象")
+    fields = obj.get("fields")
+    if not isinstance(fields, list) or not fields or len(fields) > 20:
+        raise ValueError("fields 必须是 1~20 项的列表（每项 {label, key, type}）")
+    for f in fields:
+        if not isinstance(f, dict):
+            raise ValueError("fields 每项必须是对象")
+        t = f.get("type", "text")
+        if t not in FIELD_TYPES:
+            raise ValueError(f"fields.type 必须是 {list(FIELD_TYPES)}")
+        keys = ("a", "b") if t == "diff" else ("key",)
+        for k in keys:
+            if not isinstance(f.get(k), str) or not f[k] or len(f[k]) > 80:
+                raise ValueError(f"fields 里 type={t} 的项必须有字符串字段 {k}")
+    rules = obj.get("rules", [])
+    if not isinstance(rules, list) or len(rules) > 30:
+        raise ValueError("rules 必须是不超过 30 条的列表")
+    seen = set()
+    for r in rules:
+        if not isinstance(r, dict):
+            raise ValueError("rules 每项必须是对象")
+        check_id(r.get("id"))
+        if r["id"] in seen:
+            raise ValueError(f"规则 id 重复: {r['id']}")
+        seen.add(r["id"])
+        if r.get("op") not in RULE_OPS:
+            raise ValueError(f"规则 {r['id']} 的 op 必须是 {list(RULE_OPS)}")
+        if not isinstance(r.get("field"), str) or not r["field"] or len(r["field"]) > 80:
+            raise ValueError(f"规则 {r['id']} 必须有字符串 field")
+        if r["op"] in RULE_NEEDS_VALUE and "value" not in r:
+            raise ValueError(f"规则 {r['id']}（{r['op']}）必须有 value")
+        v = r.get("value")
+        if isinstance(v, list):
+            if len(v) > 50 or any(isinstance(x, (dict, list)) for x in v):
+                raise ValueError(f"规则 {r['id']} 的 value 列表最多 50 个标量")
+        elif isinstance(v, dict):
+            raise ValueError(f"规则 {r['id']} 的 value 不能是对象")
+        if r["op"] in ("in", "notin") and not isinstance(v, list):
+            raise ValueError(f"规则 {r['id']}（{r['op']}）的 value 必须是列表")
+        if r["op"] in ("minlen", "maxlen", "gt", "gte", "lt", "lte") and (isinstance(v, bool) or not isinstance(v, (int, float))):
+            raise ValueError(f"规则 {r['id']}（{r['op']}）的 value 必须是数字")
+        if r.get("severity", "error") not in ("error", "warn"):
+            raise ValueError(f"规则 {r['id']} 的 severity 必须是 error 或 warn")
+    ps = obj.get("page_size")
+    if ps is not None and (isinstance(ps, bool) or not isinstance(ps, int) or not 1 <= ps <= 50):
+        raise ValueError("page_size 必须是 1~50 的整数")
+
+
 def clean_definition(coll: str, obj) -> dict:
     if coll not in DEF_COLLS:
         raise ValueError(f"coll 必须是 {list(DEF_COLLS)}")
@@ -341,6 +430,8 @@ def clean_definition(coll: str, obj) -> dict:
         for g in groups:
             if not isinstance(g, dict) or not isinstance(g.get("nodes"), list) or any(x not in ids for x in g["nodes"]):
                 raise ValueError(f"groups 引用了不存在的节点: {g}")
+    elif coll == "reviews":
+        _check_review(obj)
     else:
         blocks = obj.get("blocks")
         if not isinstance(blocks, list) or len(blocks) > 200 or any(
@@ -425,7 +516,7 @@ def _node_map(g):
 
 
 def _def_label(coll, iid, old, new) -> str:
-    cn = {"pipelines": "Pipeline", "datasets": "数据图", "modules": "展示模块"}[coll]
+    cn = {"pipelines": "Pipeline", "datasets": "数据图", "modules": "展示模块", "reviews": "校验集"}[coll]
     title = (new.get("title") if isinstance(new, dict) else None) or iid
     if old is None:
         return f"新增{cn}「{title}」"
@@ -471,6 +562,29 @@ def _log_put(coll, iid, obj, label, sig):
     _append_event({"type": "put", "coll": coll, "id": iid, "obj": obj, "label": label, "sig": sig})
 
 
+def _mark_counts(marks: dict) -> dict:
+    c = {v: 0 for v in MARK_VERDICTS}
+    for m in marks.values():
+        if isinstance(m, dict) and m.get("v") in c:
+            c[m["v"]] += 1
+    return c
+
+
+def _slim_marks(obj: dict) -> dict:
+    """写入时间线的标记快照：只保留汇总数，不带每条标记（明细在 state/marks/ 里）。"""
+    if "counts" in obj and "marks" not in obj:
+        return {"counts": obj["counts"], "n": obj.get("n", sum(obj["counts"].values()))}
+    c = _mark_counts(obj.get("marks") or {})
+    return {"counts": c, "n": sum(c.values())}
+
+
+def _marks_label(rid: str, slim: dict) -> str:
+    d = read_json(item_path("reviews", rid), None) if ID_RE.match(rid) else None
+    title = (d or {}).get("title") or rid if isinstance(d, dict) else rid
+    c = slim["counts"]
+    return f"校验「{title}」：合格 {c['pass']} · 不合格 {c['fail']} · 存疑 {c['doubt']}"
+
+
 def add_milestone(title: str, note: str = "", tags=None) -> dict:
     title = _str(title, "title", 120).strip()
     if not title:
@@ -503,6 +617,14 @@ def sync_files() -> int:
                 if coll == "tasks":
                     if old is None:
                         _log_put(coll, iid, _slim_task(obj), _task_label(obj), True)
+                        n += 1
+                elif coll == "marks":
+                    # 时间线只存汇总数；明细变化靠节流补记，保证停止标记后最终汇总也会进入时间线
+                    slim, now = _slim_marks(obj), time.time()
+                    if old is None or (_canon(old) != _canon(slim) and now - obj.get("_logged_at", 0) >= EVENT_GAP):
+                        obj["_logged_at"] = now
+                        write_json(item_path(coll, iid), obj)
+                        _log_put(coll, iid, slim, _marks_label(iid, slim), old is None)
                         n += 1
                 elif old is None or _canon(old) != _canon(obj):
                     _log_put(coll, iid, obj, _def_label(coll, iid, old, obj), True)
@@ -622,6 +744,62 @@ def define(coll: str, item_id: str, obj) -> dict:
     return clean
 
 
+def set_marks(rid: str, entries: list) -> dict:
+    """批量写入 / 清除成果校验的人工标记。
+
+    entries: [{"line": 第几行(从 1 开始), "v": "pass"|"fail"|"doubt"|None(清除), "note": 备注, "tags": [..], "h": 行哈希(可选)}]
+    返回汇总 {"counts": {pass, fail, doubt}, "n": 已标记总数}。"""
+    check_id(rid)
+    if not isinstance(entries, list) or not entries or len(entries) > 500:
+        raise ValueError("marks 必须是 1~500 项的列表")
+    clean = []
+    for e in entries:
+        if not isinstance(e, dict):
+            raise ValueError("marks 每项必须是对象")
+        ln = e.get("line")
+        if isinstance(ln, bool) or not isinstance(ln, int) or not 1 <= ln <= 50_000_000:
+            raise ValueError("line 必须是 >= 1 的整数（第几行，从 1 开始）")
+        if "v" not in e or (e["v"] is not None and e["v"] not in MARK_VERDICTS):
+            raise ValueError(f"v 必须是 {list(MARK_VERDICTS)} 之一，或 null（清除标记）")
+        tags = e.get("tags") or []
+        if not isinstance(tags, list):
+            raise ValueError("tags 必须是列表")
+        h = e.get("h")
+        if h is not None and (isinstance(h, bool) or not isinstance(h, int)):
+            raise ValueError("h 必须是整数")
+        clean.append({"line": ln, "v": e["v"], "note": _str(e.get("note") or "", "note", 500),
+                      "tags": [_str(x, "tag", 30) for x in tags][:5], "h": h})
+    if not os.path.exists(item_path("reviews", rid)):
+        raise FileNotFoundError(f"校验集 {rid} 不存在")
+    path, now = item_path("marks", rid), time.time()
+    with lock():
+        obj = read_json(path, None) or {}
+        marks = obj.setdefault("marks", {})
+        for c in clean:
+            if c["v"] is None:
+                marks.pop(str(c["line"]), None)
+                continue
+            m = {"v": c["v"], "at": now}
+            if c["note"]:
+                m["note"] = c["note"]
+            if c["tags"]:
+                m["tags"] = c["tags"]
+            if c["h"] is not None:
+                m["h"] = c["h"]
+            marks[str(c["line"])] = m
+        if len(marks) > MAX_MARKS:
+            raise ValueError(f"标记数超过 {MAX_MARKS}")
+        slim = _slim_marks(obj)
+        first = "_logged_at" not in obj
+        log = first or now - obj["_logged_at"] >= EVENT_GAP
+        if log:
+            obj["_logged_at"] = now
+        write_json(path, obj)
+        if log:
+            _log_put("marks", rid, slim, _marks_label(rid, slim), first)
+    return slim
+
+
 # ── 体检 ──────────────────────────────────────────────────────────────────────
 EXAMPLE_PATH_PREFIX = "/example/"      # 范例里的占位路径统一用这个前缀，真实数据不会出现
 
@@ -723,6 +901,27 @@ def lint(ignore_example: bool = False) -> list:
                     for f, cn in (("source", "来源"), ("purpose", "用处"), ("processing", "被处理情况")):
                         if not n.get(f):
                             add("warn", f"{nt}: 缺少 {f}（{cn}）")
+    for rid, r in raw["reviews"].items():
+        rt = f"reviews/{rid}"
+        try:
+            clean_definition("reviews", r)
+        except ValueError as e:
+            add("error", f"{rt}: {e}")
+            continue
+        if not r.get("title"):
+            add("warn", f"{rt}: 缺少 title")
+        if not r.get("description"):
+            add("warn", f"{rt}: 缺少 description（这批成果是什么、为什么要校验、怎么判定合格）")
+        full = resolve_asset(r["source"])
+        if not full or not os.path.isfile(full):
+            add("warn", f"{rt}: 源文件不存在: {r['source']}（应放在资源目录 {assets_dir()} 下）")
+        frm = r.get("from") or {}
+        if frm.get("dataset") and not ref_ok("datasets", frm["dataset"]):
+            add("warn", f"{rt}: from.dataset 引用的数据节点不存在: {frm['dataset']}")
+        if frm.get("task") and frm["task"] not in raw["tasks"]:
+            add("warn", f"{rt}: from.task 引用的任务不存在: {frm['task']}")
+        if not frm:
+            add("warn", f"{rt}: 缺少 from（这批成果来自哪个任务/数据/模型，便于追溯）")
     for tid, t in raw["tasks"].items():
         tt = f"tasks/{tid}"
         p = t.get("pipeline")

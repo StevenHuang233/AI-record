@@ -5,10 +5,11 @@ import { h, patch, onAction, fmtTime } from "./util.js";
 import { S } from "./store.js";
 import { parseRoute, navKeyOf, renderPage } from "./pages.js";
 import { TL, mount, setEvents } from "./timeline.js";
+import { setOnChange, setView, setRule, gotoPage, mark, RV } from "./review.js";
 
 const POLL_MS = 2500;
 const NAV = [["home", "首页", "#/"], ["train", "训练", "#/train"], ["run", "流水线执行", "#/run"], ["eval", "评测", "#/eval"],
-             ["pipelines", "Pipeline", "#/pipelines"], ["datasets", "数据管理", "#/datasets"], ["modules", "定制模块", "#/modules"]];
+             ["pipelines", "Pipeline", "#/pipelines"], ["datasets", "数据管理", "#/datasets"], ["review", "成果校验", "#/review"], ["modules", "定制模块", "#/modules"]];
 let seq = 0;
 let lastRoute = null;
 
@@ -70,6 +71,23 @@ async function pullTimeline() {
 }
 
 onAction("selnode", (key, id) => { S.sel[key] = id; render(); });
+/* 成果校验工作台的交互 */
+onAction("rvview", (k) => setView(k));
+onAction("rvrule", (id) => setRule(id));
+onAction("rvpage", (p) => gotoPage(parseInt(p, 10)));
+onAction("rvsel", (line, _a2, el, e) => {
+  if (e.target.closest("button, a, video, audio, input, textarea")) return;       // 点按钮/媒体时不改选中
+  RV.sel = parseInt(line, 10); render();
+});
+onAction("rvmark", (line, v, _el, e) => { e.stopPropagation(); RV.sel = parseInt(line, 10); mark(parseInt(line, 10), v); });
+onAction("rvnote", (line, _a2, _el, e) => {
+  e.stopPropagation();
+  const ln = parseInt(line, 10), it = RV.data && RV.data.items.find((x) => x.line === ln);
+  if (!it) return;
+  const txt = window.prompt(`第 ${ln} 行的备注（留空则清除备注）`, (it.mark && it.mark.note) || "");
+  if (txt !== null) mark(ln, (it.mark && it.mark.v) || "doubt", txt.slice(0, 500));
+});
+setOnChange(render);
 window.addEventListener("hashchange", render);
 
 async function loop() {

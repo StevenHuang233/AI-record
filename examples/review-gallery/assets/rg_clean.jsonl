@@ -1,0 +1,60 @@
+{"id": "c001", "raw": "<p>欢迎来到<b>示例</b>页面</p>", "cleaned": "欢迎来到示例页面", "src": "log", "removed": 14}
+{"id": "c002", "raw": "会议定于 2026/10/12 下午三点", "cleaned": "会议定于 2026-10-12 15:00", "src": "faq", "removed": -1}
+{"id": "c003", "raw": "  请问 今天的天气怎么样 ？？ ", "cleaned": "请问今天的天气怎么样？", "src": "log", "removed": 6}
+{"id": "c004", "raw": "A: 你好\nB: 你好\nA: 再见", "cleaned": "A: 你好\nB: 你好\nA: 再见", "src": "log", "removed": 0}
+{"id": "c005", "raw": "<p>欢迎来到<b>示例</b>页面</p>", "cleaned": "欢迎来到示例页面", "src": "faq", "removed": 14}
+{"id": "c006", "raw": "  请问 今天的天气怎么样 ？？ ", "cleaned": "请问今天的天气怎么样？", "src": "faq", "removed": 6}
+{"id": "c007", "raw": "好的好的好的好的好的好的", "cleaned": "好的", "src": "log", "removed": 10}
+{"id": "c008", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1001，金额 ¥88.00", "src": "forum", "removed": 2}
+{"id": "c009", "raw": "会议定于 2026/10/12 下午三点", "cleaned": "会议定于 2026-10-12 15:00", "src": "log", "removed": -1}
+{"id": "c010", "raw": "好的好的好的好的好的好的", "cleaned": "好的", "src": "log", "removed": 10}
+{"id": "c011", "raw": "A: 你好\nB: 你好\nA: 再见", "cleaned": "A: 你好", "src": "forum", "removed": 12}
+{"id": "c012", "raw": "  请问 今天的天气怎么样 ？？ ", "cleaned": "请问今天的天气怎么样？", "src": "faq", "removed": 6}
+{"id": "c013", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1001，金额 ¥88.00", "src": "log", "removed": 2}
+{"id": "c014", "raw": "数据集共有 3,200 条记录", "cleaned": "数据集共有 3200 条记录", "src": "faq", "removed": 1}
+{"id": "c015", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "log", "removed": 12}
+{"id": "c016", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "faq", "removed": 12}
+{"id": "c017", "raw": "会议定于 2026/10/12 下午三点", "cleaned": "会议定于 2026-10-12 15:00", "src": "log", "removed": -1}
+{"id": "c018", "raw": "好的好的好的好的好的好的", "cleaned": "好的", "src": "log", "removed": 10}
+{"id": "c019", "raw": "A: 你好\nB: 你好\nA: 再见", "cleaned": "A: 你好\nB: 你好\nA: 再见", "src": "log", "removed": 0}
+{"id": "c020", "raw": "这是一段正常的文本，不需要改动。", "cleaned": "这是一段正常的文本，不需要改动。", "src": "forum", "removed": 0}
+{"id": "c021", "raw": "联系电话 13800000000 请勿外传", "cleaned": "联系电话 [手机号] 请勿外传", "src": "faq", "removed": 6}
+{"id": "c022", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1", "src": "faq", "removed": 15}
+{"id": "c023", "raw": "这是一段正常的文本，不需要改动。", "cleaned": "这是一段正常的文本，不需要改动。", "src": "faq", "removed": 0}
+{"id": "c024", "raw": "数据集共有 3,200 条记录", "cleaned": "数据集共有 3200 条记录", "src": "log", "removed": 1}
+{"id": "c025", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1001，金额 ¥88.00", "src": "faq", "removed": 2}
+{"id": "c026", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "faq", "removed": 12}
+{"id": "c027", "raw": "好的好的好的好的好的好的", "cleaned": "好的", "src": "forum", "removed": 10}
+{"id": "c028", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1001，金额 ¥88.00", "src": "faq", "removed": 2}
+{"id": "c029", "raw": "她说：“我明天去北京。”", "cleaned": "她说：“我明天去北京。”", "src": "log", "removed": 0}
+{"id": "c030", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "log", "removed": 12}
+{"id": "c031", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "log", "removed": 12}
+{"id": "c032", "raw": "", "cleaned": "", "src": "faq", "removed": 0}
+{"id": "c033", "raw": "A: 你好\nB: 你好\nA: 再见", "cleaned": "A: 你好", "src": "forum", "removed": 12}
+{"id": "c034", "raw": "<p>欢迎来到<b>示例</b>页面</p>", "cleaned": "欢迎来到示例页面", "src": "forum", "removed": 14}
+{"id": "c035", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "forum", "removed": 12}
+{"id": "c036", "raw": "<p>欢迎来到<b>示例</b>页面</p>", "cleaned": "欢迎来到示例页面", "src": "forum", "removed": 14}
+{"id": "c037", "raw": "好的好的好的好的好的好的", "cleaned": "好的", "src": "log", "removed": 10}
+{"id": "c038", "raw": "她说：“我明天去北京。”", "cleaned": "她说：“我明天去北京。”", "src": "log", "removed": 0}
+{"id": "c039", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1001，金额 ¥88.00", "src": "faq", "removed": 2}
+{"id": "c040", "raw": "这是一段正常的文本，不需要改动。", "cleaned": "这是一段正常的文本，不需要改动。", "src": "faq", "removed": 0}
+{"id": "c041", "raw": "", "cleaned": "", "src": "forum", "removed": 0}
+{"id": "c042", "raw": "她说：“我明天去北京。”", "cleaned": "她说：“我明天去北京。”", "src": "forum", "removed": 0}
+{"id": "c043", "raw": "这是一段正常的文本，不需要改动。", "cleaned": "这是一段正常的文本，不需要改动。", "src": "faq", "removed": 0}
+{"id": "c044", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1", "src": "log", "removed": 15}
+{"id": "c045", "raw": "A: 你好\nB: 你好\nA: 再见", "cleaned": "A: 你好\nB: 你好\nA: 再见", "src": "forum", "removed": 0}
+{"id": "c046", "raw": "联系电话 13800000000 请勿外传", "cleaned": "联系电话 [手机号] 请勿外传", "src": "forum", "removed": 6}
+{"id": "c047", "raw": "联系电话 13800000000 请勿外传", "cleaned": "联系电话 [手机号] 请勿外传", "src": "forum", "removed": 6}
+{"id": "c048", "raw": "会议定于 2026/10/12 下午三点", "cleaned": "会议定于 2026-10-12 15:00", "src": "log", "removed": -1}
+{"id": "c049", "raw": "数据集共有 3,200 条记录", "cleaned": "数据集共有 3200 条记录", "src": "log", "removed": 1}
+{"id": "c050", "raw": "A: 你好\nB: 你好\nA: 再见", "cleaned": "A: 你好\nB: 你好\nA: 再见", "src": "faq", "removed": 0}
+{"id": "c051", "raw": "<p>欢迎来到<b>示例</b>页面</p>", "cleaned": "欢迎来到示例页面", "src": "forum", "removed": 14}
+{"id": "c052", "raw": "她说：“我明天去北京。”", "cleaned": "她说：“我明天去北京。”", "src": "forum", "removed": 0}
+{"id": "c053", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "forum", "removed": 12}
+{"id": "c054", "raw": "价格便宜 质量很好 全网最低价！！！加微信", "cleaned": "价格便宜，质量很好", "src": "forum", "removed": 12}
+{"id": "c055", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1", "src": "log", "removed": 15}
+{"id": "c056", "raw": "这是一段正常的文本，不需要改动。", "cleaned": "这是一段正常的文本，不需要改动。", "src": "forum", "removed": 0}
+{"id": "c057", "raw": "她说：“我明天去北京。”", "cleaned": "她说：“我明天去北京。”", "src": "faq", "removed": 0}
+{"id": "c058", "raw": "订单号：A1001，金额 ￥ 88 .00", "cleaned": "订单号：A1001，金额 ¥88.00", "src": "log", "removed": 2}
+{"id": "c059", "raw": "她说：“我明天去北京。”", "cleaned": "她说：“我明天去北京。”", "src": "faq", "removed": 0}
+{"id": "c060", "raw": "这是一段正常的文本，不需要改动。", "cleaned": "这是一段正常的文本，不需要改动。", "src": "faq", "removed": 0}

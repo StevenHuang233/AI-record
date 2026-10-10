@@ -1,0 +1,40 @@
+{"id": "m001", "question": "请列出三种常见排序算法", "answer": "冒泡排序、快速排序、归并排序", "ref": "冒泡、快速、归并", "latency": 1.34, "img": "rg_1.png"}
+{"id": "m002", "question": "计算 17 × 23", "answer": "391", "ref": "391", "latency": 2.91, "img": "rg_2.png"}
+{"id": "m003", "question": "“春眠不觉晓”的下一句是？", "answer": "处处闻啼鸟", "ref": "处处闻啼鸟", "latency": 0.66, "img": "rg_3.png"}
+{"id": "m004", "question": "请列出三种常见排序算法", "answer": "冒泡排序、快速排序、归并排序", "ref": "冒泡、快速、归并", "latency": 1.52, "img": "rg_0.png"}
+{"id": "m005", "question": "光合作用需要哪两种原料？", "answer": "二氧化碳和水 二氧化碳和水 二氧化碳和水", "ref": "二氧化碳和水", "latency": 1.88, "img": "rg_1.png"}
+{"id": "m006", "question": "用一句话解释什么是通货膨胀", "answer": "物价持续普遍上涨、货币购买力下降。", "ref": "物价总水平持续上涨", "latency": 2.6, "img": "rg_2.png"}
+{"id": "m007", "question": "下面这张图里是什么颜色的主体？", "answer": "抱歉，我无法回答这个问题。", "ref": "橙色", "latency": 2.52, "img": "rg_3.png"}
+{"id": "m008", "question": "计算 17 × 23", "answer": "391", "ref": "391", "latency": 1.62, "img": "rg_0.png"}
+{"id": "m009", "question": "请列出三种常见排序算法", "answer": "", "ref": "冒泡、快速、归并", "latency": 0.81, "img": "rg_1.png"}
+{"id": "m010", "question": "请列出三种常见排序算法", "answer": "冒泡排序、快速排序、归并排序 冒泡排序、快速排序、归并排序 冒泡排序、快速排序、归并排序", "ref": "冒泡、快速、归并", "latency": 1.64, "img": "rg_2.png"}
+{"id": "m011", "question": "2 的 10 次方是多少？", "answer": "1024", "ref": "1024", "latency": 2.9, "img": "rg_3.png"}
+{"id": "m012", "question": "计算 17 × 23", "answer": "391", "ref": "391", "latency": 2.85, "img": "rg_0.png"}
+{"id": "m013", "question": "2 的 10 次方是多少？", "answer": "不知道", "ref": "1024", "latency": 9.8, "img": "rg_1.png"}
+{"id": "m014", "question": "“春眠不觉晓”的下一句是？", "answer": "抱歉，我无法回答这个问题。", "ref": "处处闻啼鸟", "latency": 2.38, "img": "rg_2.png"}
+{"id": "m015", "question": "计算 17 × 23", "answer": "391 391 391", "ref": "391", "latency": 3.09, "img": "rg_3.png"}
+{"id": "m016", "question": "下面这张图里是什么颜色的主体？", "answer": "偏暖的橙色块", "ref": "橙色", "latency": 0.82, "img": "rg_0.png"}
+{"id": "m017", "question": "下面这张图里是什么颜色的主体？", "answer": "偏暖的橙色块", "ref": "橙色", "latency": 1.2, "img": "rg_missing.png"}
+{"id": "m018", "question": "用一句话解释什么是通货膨胀", "answer": "", "ref": "物价总水平持续上涨", "latency": 0.63, "img": "rg_2.png"}
+{"id": "m019", "question": "下面这张图里是什么颜色的主体？", "answer": "偏暖的橙色块", "ref": "橙色", "latency": 1.28, "img": "rg_3.png"}
+{"id": "m020", "question": "把 12 和 18 的最大公约数写出来", "answer": "6 6 6", "ref": "6", "latency": 0.98, "img": "rg_0.png"}
+{"id": "m021", "question": "“春眠不觉晓”的下一句是？", "answer": "抱歉，我无法回答这个问题。", "ref": "处处闻啼鸟", "latency": 2.19, "img": "rg_1.png"}
+{"id": "m022", "question": "“春眠不觉晓”的下一句是？", "answer": "处处闻啼鸟", "ref": "处处闻啼鸟", "latency": 3.08, "img": "rg_2.png"}
+{"id": "m023", "question": "把 12 和 18 的最大公约数写出来", "answer": "6", "ref": "6", "latency": 1.79, "img": "rg_3.png"}
+{"id": "m024", "question": "计算 17 × 23", "answer": "391", "ref": "391", "latency": 1.63, "img": "rg_0.png"}
+{"id": "m025", "question": "计算 17 × 23", "answer": "391 391 391", "ref": "391", "latency": 0.87, "img": "rg_1.png"}
+{"id": "m026", "question": "计算 17 × 23", "answer": "不知道", "ref": "391", "latency": 9.8, "img": "rg_2.png"}
+{"id": "m027", "question": "光合作用需要哪两种原料？", "answer": "", "ref": "二氧化碳和水", "latency": 3.16, "img": "rg_3.png"}
+{"id": "m028", "question": "请列出三种常见排序算法", "answer": "抱歉，我无法回答这个问题。", "ref": "冒泡、快速、归并", "latency": 1.02, "img": "rg_0.png"}
+{"id": "m029", "question": "“春眠不觉晓”的下一句是？", "answer": "处处闻啼鸟", "ref": "处处闻啼鸟", "latency": 2.16, "img": "rg_1.png"}
+{"id": "m030", "question": "光合作用需要哪两种原料？", "answer": "二氧化碳和水 二氧化碳和水 二氧化碳和水", "ref": "二氧化碳和水", "latency": 0.6, "img": "rg_2.png"}
+{"id": "m031", "question": "下面这张图里是什么颜色的主体？", "answer": "偏暖的橙色块", "ref": "橙色", "latency": 2.0, "img": "rg_3.png"}
+{"id": "m032", "question": "“春眠不觉晓”的下一句是？", "answer": "处处闻啼鸟", "ref": "处处闻啼鸟", "latency": 2.2, "img": "rg_0.png"}
+{"id": "m033", "question": "光合作用需要哪两种原料？", "answer": "二氧化碳和水", "ref": "二氧化碳和水", "latency": 2.87, "img": "rg_1.png"}
+{"id": "m034", "question": "计算 17 × 23", "answer": "391", "ref": "391", "latency": 0.99, "img": "rg_missing.png"}
+{"id": "m035", "question": "2 的 10 次方是多少？", "answer": "抱歉，我无法回答这个问题。", "ref": "1024", "latency": 3.08, "img": "rg_3.png"}
+{"id": "m036", "question": "“春眠不觉晓”的下一句是？", "answer": "", "ref": "处处闻啼鸟", "latency": 1.83, "img": "rg_0.png"}
+{"id": "m037", "question": "光合作用需要哪两种原料？", "answer": "二氧化碳和水", "ref": "二氧化碳和水", "latency": 2.81, "img": "rg_1.png"}
+{"id": "m038", "question": "请列出三种常见排序算法", "answer": "冒泡排序、快速排序、归并排序", "ref": "冒泡、快速、归并", "latency": 1.85, "img": "rg_2.png"}
+{"id": "m039", "question": "2 的 10 次方是多少？", "answer": "不知道", "ref": "1024", "latency": 9.8, "img": "rg_3.png"}
+{"id": "m040", "question": "光合作用需要哪两种原料？", "answer": "二氧化碳和水 二氧化碳和水 二氧化碳和水", "ref": "二氧化碳和水", "latency": 2.55, "img": "rg_0.png"}

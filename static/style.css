@@ -249,3 +249,45 @@ a.ss { text-decoration: none; color: inherit; display: block; }
 .xlink.open { margin-left: 10px; font-size: 12.5px; }
 
 .tag.ex { background: #c28a1e26; color: var(--warn); border: 1px dashed var(--warn); }
+
+/* ── 成果校验工作台 ─────────────────────────────────────────────────────────── */
+.mkb-pass { --c: var(--ok); } .mkb-fail { --c: var(--bad); } .mkb-doubt { --c: var(--warn); }
+.badge.mkb-pass, .badge.mkb-fail, .badge.mkb-doubt { border-color: var(--c); color: var(--c); }
+.mstack { height: 12px; margin: 8px 0 4px; }
+.ms-pass { background: var(--ok); } .ms-fail { background: var(--bad); } .ms-doubt { background: var(--warn); }
+.rvbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 0 10px; }
+.views { display: flex; flex-wrap: wrap; gap: 4px; }
+.vtab { border: 1px solid var(--line); background: var(--card); color: var(--sub); border-radius: 999px; padding: 2px 12px; cursor: pointer; font-size: 13px; transition: background-color .25s, color .25s, border-color .25s; }
+.vtab:hover { border-color: var(--accent); color: var(--accent); }
+.vtab.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.rvbar .x { border: 0; background: none; color: inherit; cursor: pointer; font-size: 15px; padding: 0 0 0 6px; }
+.keys { color: var(--sub); font-size: 12px; }
+kbd { display: inline-block; min-width: 18px; text-align: center; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--soft); color: var(--text); font: 11px/16px ui-monospace, Menlo, Consolas, monospace; margin: 0 2px; }
+.scanning .bar { margin: 4px 0; }
+.rvlist { display: grid; gap: 12px; }
+.rvcard { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 12px; padding: 10px 14px; cursor: pointer; transition: border-color .25s, box-shadow .25s, background-color .35s, opacity .5s; scroll-margin: 130px 0 170px; }
+.rvcard:hover { box-shadow: var(--shadow); }
+.rvcard.has-fail { border-left-color: var(--bad); }
+.rvcard.mk-pass { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--card)); }
+.rvcard.mk-fail { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 7%, var(--card)); }
+.rvcard.mk-doubt { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--card)); }
+.rvcard.sel { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: 0 3px 12px rgba(90, 70, 30, .2); }
+.rvhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; }
+.rvno { font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 4px; }
+.rvbody { display: grid; gap: 6px; }
+.rvimg { max-height: 280px; width: auto; object-fit: contain; background: var(--track); }
+.jsonbox { margin: 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; background: var(--soft); border-radius: 6px; padding: 6px 8px; max-height: 200px; overflow: auto; }
+.diffbox { white-space: pre-wrap; word-break: break-word; background: var(--soft); border-radius: 8px; padding: 6px 10px; max-height: 260px; overflow: auto; }
+.df-del { background: color-mix(in srgb, var(--bad) 22%, transparent); text-decoration: line-through; }
+.df-ins { background: color-mix(in srgb, var(--ok) 25%, transparent); }
+.rvact { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.vbtn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 8px; padding: 3px 12px; cursor: pointer; font-size: 13px; transition: background-color .2s, border-color .2s, color .2s; }
+.vbtn:hover { border-color: var(--accent); }
+.vbtn.v-pass:hover, .vbtn.v-pass.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+.vbtn.v-fail:hover, .vbtn.v-fail.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.vbtn.v-doubt:hover, .vbtn.v-doubt.on { background: var(--warn); border-color: var(--warn); color: #1b1b1b; }
+.vbtn.on kbd { color: #1b1b1b; }
+.rvnote { color: var(--sub); font-size: 12.5px; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 16px 0 4px; }
+.pager button:disabled { opacity: .4; cursor: default; }
+.toast { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); background: var(--text); color: var(--card); padding: 8px 16px; border-radius: 8px; z-index: 30; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); }
