@@ -316,13 +316,24 @@ function reviewPage(r) {
     const g = findGraph("datasets", gid), n = g && !g.error ? g.nodes.find((x) => x.id === nid) : null;
     meta.push(h("span", { "data-key": "m-ds" }, "来自数据 ", n ? h("a", { class: "xlink", href: hrefOf("datasets", f.dataset) }, n.name || nid) : h("b", {}, f.dataset)));
   }
+  let addrs = [];                                  // 关联数据资产登记的存放地址：直接在校验页头部标出来
+  if (f.dataset) {
+    const [gid2, nid2] = String(f.dataset).split("/");
+    const g2 = findGraph("datasets", gid2), n2 = g2 && !g2.error ? g2.nodes.find((x) => x.id === nid2) : null;
+    addrs = (n2 && n2.locations) || [];
+  }
   if (f.model) meta.push(h("span", { "data-key": "m-model" }, "模型 ", h("b", {}, f.model)));
   if (f.note) meta.push(h("span", { "data-key": "m-note" }, f.note));
   const head = h("div", { class: "card" + (isFolded("rvhead:" + d.id) ? " folded" : ""), "data-key": "rvhead" },
     h("div", { class: "g-head" }, foldBtn("rvhead:" + d.id), h("h3", {}, d.title || d.id), tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), exTag(d)),
     foldBody("rvhead:" + d.id, [
       d.description ? descBlock(d.description) : null,
-      meta.length ? h("div", { class: "kv" }, meta) : null]));
+      meta.length ? h("div", { class: "kv" }, meta) : null,
+      addrs.length ? h("div", { class: "addrs", "data-key": "rv-addrs" }, h("div", { class: "kv" }, "数据存放地址"),
+        addrs.map((l, i) => h("div", { class: "addr", "data-key": "ad" + i },
+          h("span", { class: "tag" }, l.label || l.storage || "地址"), l.storage && l.label ? h("span", { class: "id" }, l.storage) : null,
+          l.path ? h("code", {}, l.path) : h("span", { class: "id" }, "（路径已隐藏）"),
+          l.note ? h("span", { class: "id" }, l.note) : null))) : null]));
   let body;
   if (!live) {
     reviewLeave();

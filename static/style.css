@@ -391,3 +391,8 @@ td.mc .md { font-size: 11px; color: var(--sub); }
 .g-head > .fold { margin-right: 2px; }
 h3 > .fold { margin-right: 8px; vertical-align: middle; }
 .card.folded > .g-head, .card.folded > h3 { margin-bottom: 0; }
+
+/* 校验页头部：数据存放地址 */
+.addrs { margin-top: 8px; }
+.addrs .addr { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin: 4px 0; }
+.addrs code { word-break: break-all; user-select: all; }
