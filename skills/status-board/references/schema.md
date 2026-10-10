@@ -212,7 +212,7 @@ sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开
 **注意**
 - `source` 只能是资源目录内的相对路径、以 `.jsonl` 结尾；`..`、绝对路径、指向目录外的软链都会被拒绝。
 - 规则扫描在后台线程进行，文件大时先显示「正在扫描」；超过 `SB_REVIEW_MAX_ROWS`（默认 30 万行）或 `SB_REVIEW_BUDGET`（默认 60 秒）则只扫描前面部分并标注。
-- 单行超过 200KB 会被跳过并计为"不是合法 JSON 对象"。
+- 单行超过上限（默认 200KB，`SB_REVIEW_LINE_MAX` 可调，单位字节）不会被解析，扫描里单独计成「超长行」（`scan.too_long`），页面上显示「该行超过上限，已跳过」。带每页动作轨迹的视频评测行常有几百 KB，要把整份都看全就把它调大，例如 `SB_REVIEW_LINE_MAX=2000000`。
 - 回放历史时不显示样本明细（读的是当前文件，和历史对不上），只显示当时的标记汇总。
 
 ### 7b-2 分面筛选与矩阵 `facets` / `matrix`
@@ -237,6 +237,42 @@ sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开
   分面筛选和「视图 / 规则」是**并且**的关系。
 - **矩阵始终展示全量**（不随分面筛选收缩），这样筛掉一个格子后还能接着看别的格子；下面的样本列表才受筛选影响。
 - 分面的条数按「除这个分面外其他筛选都生效」计算，所以按钮上的数字不会因为选中它自己而全变成同一个值。
+
+### 7b-3 视频图库 `gallery`
+
+成果是「每行一条视频」（例如视频评测集的 `video_eval.jsonl`）时，加一个 `gallery` 块，校验台就换成图库视图：
+侧栏按数据集分组 → 8 格矩阵（条数 + 时长中位 / 范围）+ 风格分布 + 规则检查 → 筛选条（校验视图 / 页数 / 目标页 / 风格 / 排序 / 搜索）→ 卡片网格（缩略图、页数、提问次数、时长）
+→ 点卡片开详情抽屉（播放器、抽帧、拍摄参数、**时间轴**（动作块 / 页面可见区间 / 提问标记，点哪跳哪）、提问列表、题目与参考答案、计分题表、动作变化表、每页段信息）。
+每张卡和抽屉里都能标 合格 / 不合格 / 存疑（抽屉里按 `1` `2` `3`，`N` 写备注，`← →` 切换，`Esc` 关闭）。
+
+```json
+{
+  "title": "KnowShiftQA", "kind": "cleaned_data", "description": "怎样算合格……",
+  "source": "releases/release_knowshift_v2.0/video_eval.v4.jsonl",
+  "fields": [{"label": "指令", "key": "instruction"}],
+  "rules": [{"id": "has_ask", "field": "asks", "op": "minlen", "value": 1, "label": "至少 1 次提问"}],
+  "gallery": {
+    "group": "KnowShiftQA", "version": "v2.0", "badge": "最终版",
+    "media_map": {"anchor": "release_", "prefix": "releases/"}
+  }
+}
+```
+
+- **只写需要的**：不写的字段按默认映射（= `video_eval.v4.jsonl` 的结构）：`item_id` `images[]`（第 0 张当缩略图、全部当抽帧）`video` `instruction`（卡片标题）
+  `target.stem` / `题面`（题目）`gold_answer` `cell` `turns` `n_pages` `target_page` `asks[]`（`{turn,t,page,instruction}`）`page_windows[]`
+  `video_meta`（`duration fps width height style style_name optics seed render_version stages[][] segments[] transitions[] action_metrics[][]`）`scored[]`。
+  任何一项都能改：`"title": "question"`，或给候选列表 `"subtitle": ["target.stem", "题面"]`（第一个取得到值的生效）。
+  可改的键：`id thumb video frames title subtitle gold duration pages target_page asks windows cell turns style style_name data_source optics meta scored frame_pages`；
+  `cells` / `turn_names` 是矩阵的行列（默认四个格 × 单轮 / 多轮）；`group` `version` `badge` 用于侧栏。
+- **`media_map`**：行里的路径常常是生成它那台机器上的绝对路径。`anchor` = 找第一个以它开头的路径段，从那一段往后；`after` = 取第一次出现的它之后的部分；
+  `prefix` 加在前面（必须是相对前缀，不能以 `/` 开头、不能含 `..`）。**没映射上的绝对路径一律丢掉**（服务端不会放行，也不该把真实目录暴露给浏览器）。
+  映射只是字符串改写，真正的文件访问仍然走资源根的沙箱。
+- **文件放哪**：视频、抽帧、`.jsonl` 都可以留在共享盘上，用 `--asset-root 别名=路径` 登记成只读根（见上面「放视频 / 图片 / 音频」），不用复制。
+- **大文件**：扫描在后台线程里进行（同时最多 `SB_REVIEW_THREADS` 个，默认 2），整份文件的 8 格 / 风格 / 筛选 / 搜索 / 排序只用扫描时留下的每行一个小元组，翻页才去读那一页的原行。
+  23306 条（480MB）的集首次扫描约十几秒，之后走缓存。单行超过 `SB_REVIEW_LINE_MAX`（默认 200KB）的行不解析，侧栏和头部会写出「N 行超长未读」；
+  视频评测行常有几百 KB，要看全就调大，例如 `SB_REVIEW_LINE_MAX=2000000`。
+- 接口：`GET /api/review/<id>/gallery?cell=&turns=&pages=1|multi&target=known|unknown&style=&sort=dur_desc|dur_asc|asks&q=&view=&rule=&offset=&limit=`
+  和 `GET /api/review/<id>/item?line=N`；回放历史时同样不提供。
 
 ## 7c. 资源管理 `resources/<id>.json`
 

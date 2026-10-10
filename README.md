@@ -183,15 +183,26 @@ python3 server.py --state-dir examples/.play/all --port 8766
 - 写接口要求 `Content-Type: application/json`，带 `Origin` 时必须与 `Host` 一致（防跨站）；设置了 `SB_TOKEN` 则需 `Authorization: Bearer`。对外监听且未设 `SB_TOKEN` 时写接口整体关闭，页面也不返回数据真实路径。
 - 写入字段白名单 + 长度/类型/数量校验；定义文件限制嵌套深度与大小。
 - 资源目录（`/assets/`）只服务白名单扩展名的图片/音视频，解析真实路径后必须仍在资源目录内（防 `..`、软链逃逸）；`.jsonl` 只能通过 `samples` 块或成果校验读取，且校验集的 `source` 在**定义阶段**就会拒绝越界路径和软链。
-- 成果校验的规则不支持正则（避免 ReDoS）；单次最多写 500 条标记；单行超过 200KB 跳过；扫描有行数与耗时上限。
+- 成果校验的规则不支持正则（避免 ReDoS）；单次最多写 500 条标记；单行超过上限跳过（默认 200KB，`SB_REVIEW_LINE_MAX` 可调）；扫描有行数与耗时上限。
 - 资源管理：密钥只登记来源、从不读取内容；多层防泄露（见上）；本机探测只执行固定参数的 `nvidia-smi` 与只读系统调用；对外监听时不返回 `host / path / endpoint / access` 与密钥文件路径。
 - 页面所有文本经 `textContent` 渲染，不使用 `innerHTML`；令牌只走环境变量。
+
+## 视频图库（成果校验的一种视图）
+
+成果是一行一条视频时，给校验集加 `gallery` 块，页面变成图库：8 格矩阵、风格分布、筛选 / 排序 / 搜索、卡片网格、详情抽屉（播放器 + 时间轴 + 提问 + 题目答案 + 动作与段信息），
+并且每条都能标合格 / 不合格 / 存疑。视频和 jsonl 留在共享盘，用 `--asset-root` 登记，不复制。字段约定与参数见 `skills/status-board/references/schema.md` §7b-3。
+
+```bash
+python3 server.py --asset-root releases=/共享盘/path/runs        # 视频评测行常有几百 KB：再设 SB_REVIEW_LINE_MAX=2000000
+```
 
 ## 测试
 
 ```bash
-python3 tests/test_status_board.py    # 存储层与体检：定义校验、分组、brief 提醒、写入后能读回
+python3 tests/test_status_board.py    # 存储层、体检、分面与矩阵、资源根、视频图库的接口
+python3 tests/test_asset_roots_http.py  # 起真实服务验证额外资源根（播放、Range、越界、软链逃逸）
 node tests/test_static.mjs            # 前端渲染回归（需要 Node 18+，没有就跳过）
+node tests/e2e_gallery.mjs <服务地址> <校验集id>   # 图库端到端：jsdom 加载真实页面和脚本，对着真实服务点一遍（需要 npm i jsdom）
 ```
 
 `tests/test_static.mjs` 把 `util.js` / `store.js` 换成最小桩后直接跑 `drawGraph`。改了 `static/*.js` 请跑一次：

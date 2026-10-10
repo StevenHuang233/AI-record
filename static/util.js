@@ -96,6 +96,7 @@ function morphChildren(dst, src) {
 
 export function morph(dst, src) {
   syncAttrs(dst, src);
+  if (dst.hasAttribute("data-static")) return;     // 自己管内容的容器（视频图库）：播放进度、焦点都不能被重绘打断
   morphChildren(dst, src);
 }
 

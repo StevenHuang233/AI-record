@@ -376,6 +376,9 @@ def _derive_review(r: dict, marks_obj, live: bool):
     if not CONFIG["show_paths"]:
         r.pop("source", None)                          # 资源目录相对路径也不对外暴露
     r["fields"] = [{k: v for k, v in f.items() if k in ("label", "key", "type", "a", "b")} for f in r.get("fields", []) if isinstance(f, dict)]
+    if isinstance(r.get("gallery"), dict):             # 状态里只带侧栏要用的分组信息；字段映射留在服务端
+        g = r["gallery"]
+        r["gallery"] = {k: g.get(k) for k in ("group", "version", "badge") if g.get(k)} or {"group": None}
 
 
 def build_state(raw: dict, now: float, live: bool = True) -> dict:
@@ -445,6 +448,7 @@ ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules|reviews|res
 ROUTE_RES = re.compile(r"^/api/resources/([^/]+)/([^/]+)$")
 ROUTE_REVIEW = re.compile(r"^/api/review/([^/]+)$")
 ROUTE_MARKS = re.compile(r"^/api/review/([^/]+)/marks$")
+ROUTE_GALLERY = re.compile(r"^/api/review/([^/]+)/(gallery|item)$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -577,6 +581,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"n": n, "base": base, "reset": base > since and since > 0,
                                         "events": [store.public_event(i, evs[i]) for i in range(base, n)
                                                    if evs[i].get("type") != "noop"]})
+            m = ROUTE_GALLERY.match(path)
+            if m:
+                return self._review_gallery(m.group(1), m.group(2), {k: v[0] for k, v in q.items()})
             m = ROUTE_REVIEW.match(path)
             if m:
                 return self._review_page(m.group(1), {k: v[0] for k, v in q.items()})
@@ -600,6 +607,28 @@ class Handler(BaseHTTPRequestHandler):
         if "error" in res:
             return self._json(404, res)
         return self._json(200, res)
+
+    def _review_gallery(self, rid: str, what: str, q: dict):
+        """图库视图：gallery = 一页卡片 + 8 格统计；item = 一条的完整详情。回放历史时同样不提供。"""
+        store.check_id(rid)
+        d = store.read_json(store.item_path("reviews", rid), None)
+        if not isinstance(d, dict):
+            return self._json(404, {"error": f"校验集 {rid} 不存在"})
+        try:
+            store.clean_definition("reviews", d)
+        except ValueError as e:
+            return self._json(400, {"error": f"校验集定义无效: {e}"})
+        if what == "item":
+            try:
+                line = int(q.get("line") or 0)
+            except ValueError:
+                return self._json(400, {"error": "line 必须是整数"})
+            if not 1 <= line <= 50_000_000:
+                return self._json(400, {"error": "line 必须是 >= 1 的整数"})
+            res = review.gallery_item(rid, d, line)
+        else:
+            res = review.gallery_page(rid, d, q)
+        return self._json(404 if "error" in res else 200, res)
 
     def do_POST(self):
         if not self._write_allowed():

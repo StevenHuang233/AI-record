@@ -457,6 +457,38 @@ def clean_json(v, depth=0):
     raise ValueError("不支持的 JSON 类型")
 
 
+GALLERY_KEYS = ("id", "thumb", "video", "frames", "title", "subtitle", "gold", "duration", "pages", "target_page", "asks",
+                "windows", "cell", "turns", "style", "style_name", "data_source", "optics", "meta", "scored", "frame_pages")
+GALLERY_EXTRA = ("media_map", "group", "version", "badge", "cells", "turn_names")
+
+
+def _check_gallery(g) -> None:
+    """图库视图的映射：只允许已知键；字段路径是字符串（或候选列表），媒体路径改写只做字符串替换。"""
+    if g is None:
+        return
+    if not isinstance(g, dict):
+        raise ValueError("gallery 必须是对象")
+    for k, v in g.items():
+        if k not in GALLERY_KEYS + GALLERY_EXTRA:
+            raise ValueError(f"gallery 不支持的字段: {k}")
+        if k in GALLERY_KEYS:
+            ok = (isinstance(v, str) and 0 < len(v) <= 80) or (
+                isinstance(v, list) and 0 < len(v) <= 4 and all(isinstance(x, str) and 0 < len(x) <= 80 for x in v))
+            if not ok:
+                raise ValueError(f"gallery.{k} 必须是字段路径（字符串，或最多 4 个候选路径的列表）")
+        elif k == "media_map":
+            if not isinstance(v, dict) or any(m not in ("anchor", "after", "prefix") or not isinstance(x, str) or len(x) > 200
+                                              for m, x in v.items()):
+                raise ValueError("gallery.media_map 只能有 anchor / after / prefix（字符串）")
+            if "/" in (v.get("prefix") or "")[:1] or ".." in (v.get("prefix") or ""):
+                raise ValueError("gallery.media_map.prefix 必须是相对路径前缀（不能以 / 开头，不能含 ..）")
+        elif k in ("cells", "turn_names"):
+            if not isinstance(v, list) or not 0 < len(v) <= 8 or any(not isinstance(x, str) or len(x) > 20 for x in v):
+                raise ValueError(f"gallery.{k} 必须是 1~8 个短字符串的列表")
+        elif not isinstance(v, str) or len(v) > 80:
+            raise ValueError(f"gallery.{k} 必须是不超过 80 字的字符串")
+
+
 def _check_review(obj: dict) -> None:
     """成果校验集定义：source 必须是资源目录内的 .jsonl；规则用声明式 op（不支持正则，避免 ReDoS）。"""
     src = obj.get("source")
@@ -481,6 +513,7 @@ def _check_review(obj: dict) -> None:
         for k in keys:
             if not isinstance(f.get(k), str) or not f[k] or len(f[k]) > 80:
                 raise ValueError(f"fields 里 type={t} 的项必须有字符串字段 {k}")
+    _check_gallery(obj.get("gallery"))
     facets = obj.get("facets", [])
     if not isinstance(facets, list) or len(facets) > 6:
         raise ValueError("facets 必须是不超过 6 项的列表（每项 {id, label, field}）")
