@@ -1,33 +1,113 @@
 {
-  "_example": "media-curation",
-  "title": "示例：视频素材整理（分叉处理 → 对齐 → 筛选）",
-  "description": "【范例】拓扑特点：切分之后分成画面和声音两条互不依赖的支线，再在「对齐」处汇合；最后一步是筛选，每个素材要么通过要么被拒。重点演示「流水线执行」——成千上万个素材逐个走过这些步骤时，怎么在图上看到分布。内容是虚构的，请勿照抄。",
-  "nodes": [
-    {"id": "ingest", "name": "入库", "kind": "source", "role": "登记原始视频并校验可播放",
-     "desc": "读取文件头校验编码与时长，损坏的直接标为失败，不进入后续步骤。",
-     "inputs": "原始视频目录", "outputs": "素材清单", "writes": ["media/raw_video"]},
-    {"id": "split", "name": "镜头切分", "kind": "process", "role": "把长视频按镜头切成片段",
-     "desc": "基于画面差异检测镜头边界；过短的片段并入相邻片段。",
-     "inputs": "素材清单", "outputs": "镜头片段", "reads": ["media/raw_video"], "writes": ["media/clips"]},
-    {"id": "caption", "name": "画面描述", "kind": "model", "role": "为每个片段生成画面文字描述",
-     "desc": "每个片段均匀取若干帧，交给多模态模型生成描述；描述过短视为失败。",
-     "inputs": "镜头片段", "outputs": "画面描述", "reads": ["media/clips"]},
-    {"id": "asr", "name": "语音转写", "kind": "model", "role": "把片段里的说话内容转成文字",
-     "desc": "先做静音检测，没有人声的片段直接跳过。",
-     "inputs": "镜头片段", "outputs": "转写文本", "reads": ["media/clips"]},
-    {"id": "align", "name": "图文对齐", "kind": "process", "role": "把画面描述和转写按时间对齐成一条记录",
-     "desc": "两条支线都完成的片段才会进入；缺一条的片段保留在原步骤，不会被默默丢掉。",
-     "inputs": "画面描述 + 转写文本", "outputs": "对齐记录", "writes": ["media/aligned"]},
-    {"id": "filter", "name": "质量筛选", "kind": "gate", "role": "按清晰度与对齐置信度筛出可用样本",
-     "desc": "两项分数都达标才通过；被拒原因写入记录，用于调阈值。",
-     "inputs": "对齐记录", "outputs": "可用样本 / 被拒记录", "reads": ["media/aligned"], "writes": ["media/final"]}
-  ],
-  "edges": [
-    {"from": "ingest", "to": "split"},
-    {"from": "split", "to": "caption", "label": "画面"},
-    {"from": "split", "to": "asr", "label": "声音"},
-    {"from": "caption", "to": "align"},
-    {"from": "asr", "to": "align"},
-    {"from": "align", "to": "filter"}
-  ]
+ "_example": "media-curation",
+ "title": "示例：视频素材整理（分叉处理 → 对齐 → 筛选）",
+ "description": "【范例】拓扑特点：切分之后分成画面和声音两条互不依赖的支线，再在「对齐」处汇合；最后一步是筛选，每个素材要么通过要么被拒。重点演示「流水线执行」——成千上万个素材逐个走过这些步骤时，怎么在图上看到分布。内容是虚构的，请勿照抄。",
+ "nodes": [
+  {
+   "id": "ingest",
+   "name": "入库",
+   "kind": "source",
+   "role": "登记原始视频并校验可播放",
+   "desc": "读取文件头校验编码与时长，损坏的直接标为失败，不进入后续步骤。",
+   "inputs": "原始视频目录",
+   "outputs": "素材清单",
+   "writes": [
+    "media/raw_video"
+   ]
+  },
+  {
+   "id": "split",
+   "name": "镜头切分",
+   "kind": "process",
+   "role": "把长视频按镜头切成片段",
+   "desc": "基于画面差异检测镜头边界；过短的片段并入相邻片段。",
+   "inputs": "素材清单",
+   "outputs": "镜头片段",
+   "reads": [
+    "media/raw_video"
+   ],
+   "writes": [
+    "media/clips"
+   ]
+  },
+  {
+   "id": "caption",
+   "name": "画面描述",
+   "kind": "model",
+   "role": "为每个片段生成画面文字描述",
+   "desc": "每个片段均匀取若干帧，交给多模态模型生成描述；描述过短视为失败。",
+   "inputs": "镜头片段",
+   "outputs": "画面描述",
+   "reads": [
+    "media/clips"
+   ]
+  },
+  {
+   "id": "asr",
+   "name": "语音转写",
+   "kind": "model",
+   "role": "把片段里的说话内容转成文字",
+   "desc": "先做静音检测，没有人声的片段直接跳过。",
+   "inputs": "镜头片段",
+   "outputs": "转写文本",
+   "reads": [
+    "media/clips"
+   ]
+  },
+  {
+   "id": "align",
+   "name": "图文对齐",
+   "kind": "process",
+   "role": "把画面描述和转写按时间对齐",
+   "desc": "两条支线都完成的片段才会进入；缺一条的片段保留在原步骤，不会被默默丢掉。",
+   "inputs": "画面描述 + 转写文本",
+   "outputs": "对齐记录",
+   "writes": [
+    "media/aligned"
+   ]
+  },
+  {
+   "id": "filter",
+   "name": "质量筛选",
+   "kind": "gate",
+   "role": "按清晰度与对齐置信度筛出可用样本",
+   "desc": "两项分数都达标才通过；被拒原因写入记录，用于调阈值。",
+   "inputs": "对齐记录",
+   "outputs": "可用样本 / 被拒记录",
+   "reads": [
+    "media/aligned"
+   ],
+   "writes": [
+    "media/final"
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "ingest",
+   "to": "split"
+  },
+  {
+   "from": "split",
+   "to": "caption",
+   "label": "画面"
+  },
+  {
+   "from": "split",
+   "to": "asr",
+   "label": "声音"
+  },
+  {
+   "from": "caption",
+   "to": "align"
+  },
+  {
+   "from": "asr",
+   "to": "align"
+  },
+  {
+   "from": "align",
+   "to": "filter"
+  }
+ ]
 }

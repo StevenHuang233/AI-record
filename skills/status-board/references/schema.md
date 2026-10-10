@@ -21,6 +21,7 @@
 ```
 
 - `kind`：`source process model train eval output gate`。
+- **显示长度上限**：`name` 约 11 个汉字（22 单位）、`role` 约 17 个汉字（34 单位），汉字算 2 个单位、字母数字算 1 个，超出在图上被截断；完整内容放 `desc`。设计时如何取舍见 `patterns.md` P0。
 - 图必须无环；节点自动分层、编号，按流程顺序排步骤说明。
 - **节点状态来自任务**：带 `pipeline`+`node` 的普通/训练/评测任务、以及 `kind=run` 任务里的要素 `step`，自动汇总成节点 `status/progress`。没有任务关联时可手动 `sb.node("pipelines", gid, nid, status=..., note=...)`。
 
@@ -383,7 +384,7 @@ python3 sb.py validate [--strict]
 
 ## 9. 体检 `validate` 检查什么
 
-JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；资源池缺 `desc/owner/secret_ref/expires` 等（见 §7c）；**状态目录里任何文件出现疑似密钥（错误）**；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
+JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`name` 超过 11 个汉字或 `role` 超过 17 个汉字（图上会被截断）、`kind` 不在 7 个合法值里、同一节点属于多个分组、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；资源池缺 `desc/owner/secret_ref/expires` 等（见 §7c）；**状态目录里任何文件出现疑似密钥（错误）**；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
 
 ## 10. 服务与安全
 

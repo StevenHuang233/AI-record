@@ -75,23 +75,28 @@ function lineChart(key, series, o = {}) {
 }
 
 /* ── 任务卡 ───────────────────────────────────────────────────────────────── */
+const taskFoldKey = (t) => "task:" + t.id;
+const taskClass = (t) => `card task st-${t.status}` + (isFolded(taskFoldKey(t)) ? " folded" : "");
+
 function taskTop(t) {
   const kvs = [];
   if (t.total) kvs.push(kvSpan("进度", `${fmtNum(Math.round(t.done || 0))} / ${fmtNum(t.total)}${t.unit ? " " + t.unit : ""}`));
   kvs.push(kvSpan("已用", fmtDur(t.elapsed)));
   if (t.status === "running") kvs.push(kvSpan("预计剩余", fmtDur(t.eta)));
   if (t.rate) kvs.push(kvSpan("速率", `${t.rate.toFixed(t.rate < 10 ? 2 : 0)}${t.unit ? " " + t.unit : ""}/s`));
-  const kind = t.kind || "job";
+  const kind = t.kind || "job", fk = taskFoldKey(t);
   return [
-    h("div", { class: "task-head" }, tag(TASK_KIND[kind] || kind, `kind-${kind}`), h("span", { class: "name", title: t.name || t.id }, t.name || t.id),
+    h("div", { class: "task-head" }, foldBtn(fk), tag(TASK_KIND[kind] || kind, `kind-${kind}`), h("span", { class: "name", title: t.name || t.id }, t.name || t.id),
       t.stale ? h("span", { class: "badge stale" }, "疑似停滞") : null, badge(t.status, TASK_ST)),
-    h("div", { class: "id" }, t.id, t.pipeline ? [" · 所属 ", link("pipelines", t.pipeline + (t.node ? "/" + t.node : ""), t.pipeline + (t.node ? " / " + t.node : ""))] : null),
-    h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))),
-    h("div", { class: "kv" }, kvs),
-    t.stale ? noteLine(`已 ${fmtDur(t.idle)} 没有收到心跳，进程可能已卡死或退出`) : null,
-    t.message ? h("div", { class: "msg" }, t.message) : null,
+    h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))),   // 收起后仍保留：监督时最需要看的就是进度
+    foldBody(fk, [
+      h("div", { class: "id" }, t.id, t.pipeline ? [" · 所属 ", link("pipelines", t.pipeline + (t.node ? "/" + t.node : ""), t.pipeline + (t.node ? " / " + t.node : ""))] : null),
+      h("div", { class: "kv" }, kvs),
+      t.stale ? noteLine(`已 ${fmtDur(t.idle)} 没有收到心跳，进程可能已卡死或退出`) : null,
+      t.message ? h("div", { class: "msg" }, t.message) : null]),
   ];
 }
+
 
 function scalarsBox(title, obj, cls = "") {
   const es = Object.entries(obj || {});
@@ -133,23 +138,23 @@ function shardsBox(t) {
 }
 
 function trainCard(t) {
-  return h("div", { class: `card task st-${t.status}`, "data-key": "task:" + t.id, "data-fade": 1 },
-    taskTop(t), shardsBox(t),
+  return h("div", { class: taskClass(t), "data-key": "task:" + t.id, "data-fade": 1 },
+    taskTop(t), foldBody(taskFoldKey(t), [shardsBox(t),
     h("div", { class: "cols2" },
       h("div", {}, modelBox(t), dataUsage(t, "训练使用的数据"), scalarsBox("超参数", t.hparams), scalarsBox("最新指标", t.metrics)),
-      h("div", {}, lineChart("tr-" + t.id, t.series, { title: "训练曲线" }) || h("div", { class: "empty sm" }, "还没有曲线数据（用 sb.point 上报 loss 等）"))));
+      h("div", {}, lineChart("tr-" + t.id, t.series, { title: "训练曲线" }) || h("div", { class: "empty sm" }, "还没有曲线数据（用 sb.point 上报 loss 等）")))]));
 }
 
 function evalCard(t) {
   const sc = Object.entries(t.scores || {});
-  return h("div", { class: `card task st-${t.status}`, "data-key": "task:" + t.id, "data-fade": 1 },
-    taskTop(t), shardsBox(t),
+  return h("div", { class: taskClass(t), "data-key": "task:" + t.id, "data-fade": 1 },
+    taskTop(t), foldBody(taskFoldKey(t), [shardsBox(t),
     h("div", { class: "cols2" },
       h("div", {}, modelBox(t), dataUsage(t, "评测集（及地址）")),
       h("div", {}, sc.length ? h("div", { class: "fld" }, h("div", { class: "fk" }, "评测结果"),
         h("table", {}, h("tbody", {}, sc.map(([k, v]) => h("tr", { "data-key": "sc:" + k }, h("td", {}, k), h("td", { class: "num" }, h("b", {}, typeof v === "number" ? fmtNum(+v.toPrecision(6)) : String(v))))))))
         : h("div", { class: "empty sm" }, t.status === "running" ? "评测进行中，结果出来后显示在这里" : "没有记录评测结果（scores）"),
-      scalarsBox("其他指标", t.metrics), lineChart("ev-" + t.id, t.series, { title: "曲线" }))));
+      scalarsBox("其他指标", t.metrics), lineChart("ev-" + t.id, t.series, { title: "曲线" })))]));
 }
 
 function runCard(t) {
@@ -188,14 +193,14 @@ function runCard(t) {
     }
     body = [h("div", { class: "fld" }, h("div", { class: "fk" }, `各步骤上的数据要素数（所属：${g.title || g.id}）`), strip), matrix];
   }
-  return h("div", { class: `card task st-${t.status}`, "data-key": "task:" + t.id, "data-fade": 1 }, taskTop(t), shardsBox(t), body,
-    dataUsage({ datasets: t.datasets }, "处理的数据"), scalarsBox("指标", t.metrics));
+  return h("div", { class: taskClass(t), "data-key": "task:" + t.id, "data-fade": 1 }, taskTop(t),
+    foldBody(taskFoldKey(t), [shardsBox(t), body, dataUsage({ datasets: t.datasets }, "处理的数据"), scalarsBox("指标", t.metrics)]));
 }
 
 function jobCard(t) {
-  return h("div", { class: `card task st-${t.status}`, "data-key": "task:" + t.id, "data-fade": 1 }, taskTop(t), shardsBox(t),
-    t.datasets && t.datasets.length ? dataUsage(t, "使用的数据") : null, scalarsBox("指标", t.metrics),
-    lineChart("jb-" + t.id, t.series, { title: "曲线", h: 130 }));
+  return h("div", { class: taskClass(t), "data-key": "task:" + t.id, "data-fade": 1 }, taskTop(t),
+    foldBody(taskFoldKey(t), [shardsBox(t), t.datasets && t.datasets.length ? dataUsage(t, "使用的数据") : null, scalarsBox("指标", t.metrics),
+    lineChart("jb-" + t.id, t.series, { title: "曲线", h: 130 })]));
 }
 
 export const taskCard = (t) => ({ train: trainCard, eval: evalCard, run: runCard }[t.kind] || jobCard)(t);
@@ -223,10 +228,11 @@ export function pipeNodeDetail(g, n, nav) {
   if (!n) return h("div", { class: "panel", "data-key": "detail" }, h("h4", {}, "步骤详情"), h("span", { class: "desc" }, "点击结构图里的节点或右侧列表查看这一步的作用、输入输出和进度。"));
   const tasks = (n.tasks || []).map((id) => S.state.tasks.find((t) => t.id === id)).filter(Boolean);
   const groups = (g.groups || []).filter((x) => x.nodes.includes(n.id)).map((x) => x.name);
-  const it = n.items;
-  return h("div", { class: nav ? "panel flat" : "panel", "data-key": "detail" }, nav ? null : h("h4", {}, "步骤详情"),
-    h("div", {}, h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.stale ? h("span", { class: "badge stale", style: { marginLeft: "6px" } }, "疑似停滞") : null,
+  const it = n.items, nk = `pn:${g.id}/${n.id}`;
+  return h("div", { class: (nav ? "panel flat" : "panel") + (isFolded(nk) ? " folded" : ""), "data-key": "detail" }, nav ? null : h("h4", {}, "步骤详情"),
+    h("div", {}, foldBtn(nk), h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.stale ? h("span", { class: "badge stale", style: { marginLeft: "6px" } }, "疑似停滞") : null,
       nav ? null : h("a", { class: "xlink open", href: hrefOf("pipelines", `${g.id}/${n.id}`) }, "打开步骤子页面 →")),
+    isFolded(nk) ? (n.progress != null ? h("div", { class: "pct-row" }, bar(n.progress, n.status, { sm: true }), h("span", { class: "pct" }, fmtPct(n.progress))) : null) : [
     field("作用", n.role), field("详细说明", n.desc), field("输入", n.inputs), field("输出", n.outputs),
     field("所属阶段", groups.length ? groups.map((x) => tag(x)) : null),
     field("读取的数据", n.reads ? refLinks("datasets", n.reads) : null), field("写入的数据", n.writes ? refLinks("datasets", n.writes) : null),
@@ -238,7 +244,7 @@ export function pipeNodeDetail(g, n, nav) {
     it ? field("数据要素", `处理中 ${it.running} · 已完成本步 ${it.done} · 失败 ${it.failed} · 排队 ${it.pending} · 已流转到后续步骤 ${it.passed}（总 ${it.total}）`) : null,
     tasks.length ? field("关联任务", tasks.map((t) => h("div", { class: "pct-row", "data-key": "lt:" + t.id },
       h("a", { class: "xlink", href: hrefOf("task", t.id), style: { minWidth: "110px" } }, t.name || t.id), bar(t.progress, t.status, { sm: true, stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))))) : null,
-    relLinks("pipelines", g, n.id, nav));
+    relLinks("pipelines", g, n.id, nav)]);
 }
 
 function processingLines(p) {
@@ -274,11 +280,13 @@ export function dataNodeDetail(g, n, nav) {
         h("td", { class: "num" }, sTxt), h("td", {}, st ? (st.missing ? badge("missing", NODE_ST) : st.pending ? "-" : badge("ready", NODE_ST)) : "-"));
     })))) : noteLine("未记录存放地址（请填写 locations；有备份请写多条）");
   const rows = Object.entries(m).filter(([k, v]) => !META_HIDE.has(k) && v != null && v !== "");
-  return h("div", { class: nav ? "panel flat" : "panel", "data-key": "detail" }, nav ? null : h("h4", {}, "数据详情"),
-    h("div", {}, h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
+  const dk = `dn:${g.id}/${n.id}`;
+  return h("div", { class: (nav ? "panel flat" : "panel") + (isFolded(dk) ? " folded" : ""), "data-key": "detail" }, nav ? null : h("h4", {}, "数据详情"),
+    h("div", {}, foldBtn(dk), h("span", { class: "ttl" }, n.name || n.id), badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
       n.replica ? h("span", { class: `badge rep-${n.replica}`, style: { marginLeft: "6px" } }, REPLICA[n.replica]) : null,
       nav ? null : h("a", { class: "xlink open", href: hrefOf("datasets", `${g.id}/${n.id}`) }, "打开数据子页面 →")),
-    n.brief ? h("div", { class: "kv brief", "data-key": "brief" }, n.brief) : null,
+    n.brief ? h("div", { class: "kv brief", "data-key": "brief" }, n.brief) : null,         // 收起后只剩这一句话：它就是摘要
+    isFolded(dk) ? null : [
     field("含义", n.desc), field("来源", n.source), field("用处", n.purpose),
     field("被处理情况", lines.length ? h("ul", { class: "bul" }, lines.map((x, i) => h("li", { "data-key": "pl" + i }, x))) : noteLine("未记录被处理情况（请填写 processing）")),
     h("div", { class: "fld" }, h("div", { class: "fk" }, `存放地址（${locs.length} 个）`), locTable),
@@ -286,7 +294,7 @@ export function dataNodeDetail(g, n, nav) {
       tag(asArr(t.datasets).find((d) => d.ref === ref).role || "用于"), " ", badge(t.status, TASK_ST))) : null),
     n.progress != null ? h("div", { class: "pct-row" }, bar(n.progress, n.status, { sm: true }), h("span", { class: "pct" }, fmtPct(n.progress))) : null,
     rows.length ? h("dl", { class: "meta" }, rows.map(([k, v]) => [h("dt", {}, META_LABEL[k] || k), h("dd", {}, k === "size_bytes" ? fmtBytes(v) : typeof v === "number" ? fmtNum(v) : String(v))])) : null,
-    relLinks("datasets", g, n.id, nav));
+    relLinks("datasets", g, n.id, nav)]);
 }
 
 /* ── Pipeline / 数据管理 ──────────────────────────────────────────────────── */

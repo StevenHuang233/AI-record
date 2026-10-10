@@ -191,6 +191,15 @@ def _canon(o) -> str:
 
 
 # ── 入参清洗 ──────────────────────────────────────────────────────────────────
+def display_width(s) -> int:
+    """文字在结构图上占的宽度单位（与前端 util.js 的 clip() 一致：中文等宽字符 2，其余 1）。"""
+    return sum(2 if ord(c) > 255 else 1 for c in str(s or ""))
+
+
+PIPE_NAME_MAX, PIPE_ROLE_MAX = 22, 34       # 结构图节点上 name / role 各自的显示上限（单位见 display_width）
+PIPE_KINDS = ("source", "process", "model", "train", "eval", "output", "gate")
+
+
 def _num(v, name, lo=0.0):
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < lo:
         raise ValueError(f"{name} 必须是 >= {lo} 的有限数字")
@@ -1324,6 +1333,13 @@ def lint(ignore_example: bool = False) -> list:
                             q.append(e["to"])
             if seen != len(ids):
                 add("error", f"{tag}: 存在环，无法分层布局")
+            owner = {}
+            for gr in g.get("groups") or []:
+                for nid in (gr.get("nodes") or []):
+                    if nid in owner:
+                        add("warn", f"{tag}: 节点「{nid}」同时属于分组「{owner[nid]}」和「{gr.get('name') or gr.get('id')}」——分组框会重叠，一个节点只应属于一个分组")
+                    else:
+                        owner[nid] = gr.get("name") or gr.get("id")
             for n in g["nodes"]:
                 nt = f"{tag}:{n['id']}"
                 if not n.get("name"):
@@ -1331,6 +1347,12 @@ def lint(ignore_example: bool = False) -> list:
                 if len(ids) > 1 and n["id"] not in linked:
                     add("warn", f"{nt}: 孤立节点（没有任何连线）")
                 if kind == "pipelines":
+                    if n.get("kind") is not None and n["kind"] not in PIPE_KINDS:
+                        add("warn", f"{nt}: kind「{n['kind']}」不在 {list(PIPE_KINDS)} 里（图上会原样显示这个英文词）")
+                    if n.get("name") and display_width(n["name"]) > PIPE_NAME_MAX:
+                        add("warn", f"{nt}: name 太长，结构图上只显示前 {PIPE_NAME_MAX // 2} 个汉字，后面会被截断")
+                    if n.get("role") and display_width(n["role"]) > PIPE_ROLE_MAX:
+                        add("warn", f"{nt}: role 太长（{display_width(n['role'])} > {PIPE_ROLE_MAX}），结构图上只显示前 {PIPE_ROLE_MAX // 2} 个汉字；完整内容请放 desc")
                     if not n.get("role"):
                         add("warn", f"{nt}: 缺少 role（一句话说明这一步的作用，会直接显示在结构图上）")
                     if not n.get("desc"):

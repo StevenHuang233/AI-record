@@ -167,7 +167,7 @@ sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2
 | 分面筛选与矩阵 | 校验集 `facets`（≤6 个）+ `matrix`：按字段筛，两个分面交叉出矩阵（每格条数与指标中位数） | schema §7b-2 |
 | 分组浏览 | 校验集 `group_by`（最多两级，`catalog` 可列出没有样本的分组）、`summary`（卡片收起后显示的摘要，≤4 个字段名） | `sbstore.py` 的 `_check_review`（schema 里还没有专门章节） |
 | 四档人工标记 | 合理 `pass` / 偏弱 `weak` / 判错 `fail` / 不确定 `doubt`；键盘 `1` `2` `3` `4`，`N` 写备注 | schema §7b |
-| 卡片收纳 | 标题行 ▾/▸ 收起，状态存浏览器；长说明折叠；图片点击放大；校验页头部显示数据存放地址 | — |
+| 卡片收纳 | 标题行左侧 ▾/▸ 收起，状态存浏览器。覆盖 Pipeline / 数据图 / 展示模块卡、任务详情卡（收起后保留标题与进度条）、步骤与数据详情、资源池与资源页、校验页各面板；列表页的精简卡整张可点，不放按钮。另有长说明折叠、图片点击放大、校验页头部显示数据存放地址 | — |
 | 视频图库 | 校验集 `gallery` 块：8 格矩阵、风格分布、筛选 / 排序 / 搜索、详情抽屉（播放器 + 时间轴） | schema §7b-3 |
 | 额外只读资源根 | 启动参数 `--asset-root 别名=路径`（或 `SB_ASSET_ROOTS`），视频留在共享盘不复制 | schema §7b |
 | 热力图与状态流转图 | 展示模块块 `heatmap`、`flow`（含 `layout: "free"` 自由布局：环形 / 枢纽图），可下载 SVG / PNG；Pipeline 节点还可内嵌 `blocks` 在步骤详情里画图 | schema §7 |
@@ -228,11 +228,12 @@ ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页
 
 ## 版本记录
 
-当前版本 **v1.0.0**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
+当前版本 **v1.0.1**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
 
 | 版本 | 提交 | 内容 |
 |---|---|---|
-| v1.0.0 | 本次整合 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图（含自由布局、Pipeline 步骤内嵌展示块）、额外只读资源根、Gander 评测脚本集、测试套件；README 增加用途、使用方法与实践经验 |
+| v1.0.1 | 本次 | 收纳按钮补全（任务卡、步骤详情、数据详情、资源管理页）；Pipeline 设计策略（`patterns.md` P0）与三条新体检规则（`name` / `role` 过长、`kind` 非法、节点重复入组）；修正范例里一个被截断的 `role` |
+| v1.0.0 | 整合版本 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图（含自由布局、Pipeline 步骤内嵌展示块）、额外只读资源根、Gander 评测脚本集、测试套件；README 增加用途、使用方法与实践经验 |
 | v0.6 | `939011c` | 资源管理：API Key（只登记来源、多层防泄露）、GPU / CPU / 磁盘 / 服务、本机探测、分配与健康判断；第六个范例 |
 | v0.5 | `e4f6575` | 成果校验：规则自动检查、人工逐条标记、键盘操作、`diff` 前后对比；第五个范例 |
 | v0.4 | `e7b50e5` | 四个形状各异的范例与播放器；防范例带偏的护栏（`_example` 标记、`/example/` 路径体检） |
@@ -258,7 +259,7 @@ python3 server.py --state-dir examples/.play/all --port 8766
 
 ## 给 AI 用
 
-仓库自带 skill：`skills/status-board/`（`SKILL.md` + `references/schema.md` 字段格式 + `references/patterns.md` 流程形状与建模模式，流程类内容都用图表示），`.codebuddy/skills/status-board` 是指向它的软链，所以 clone 仓库后在仓库内工作的 AI 会直接发现它。想让其他项目里的 AI 也能用：`cp -r skills/status-board ~/.codebuddy/skills/`。AI 读完就知道怎么记录训练、评测、流水线执行、数据资产和里程碑，写完如何 `validate`，以及**怎么用范例而不被带偏**。
+仓库自带 skill：`skills/status-board/`（`SKILL.md` + `references/schema.md` 字段格式 + `references/patterns.md` 流程形状与建模模式，流程类内容都用图表示），`.codebuddy/skills/status-board` 是指向它的软链，所以 clone 仓库后在仓库内工作的 AI 会直接发现它。想让其他项目里的 AI 也能用：`cp -r skills/status-board ~/.codebuddy/skills/`。AI 读完就知道怎么记录训练、评测、流水线执行、数据资产和里程碑（**设计 Pipeline 前请先读 `references/patterns.md` 的 P0**：节点粒度、文字长度上限、分组、状态来源），写完如何 `validate`，以及**怎么用范例而不被带偏**。
 
 ## 时间线是怎么来的
 

@@ -80,7 +80,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 
 | 要记录的事 | 做法 | 字段详见 |
 |---|---|---|
-| 流程每一步是什么、起什么作用 | `sb.define("pipelines", id, {...})`；每个节点写 `role`（一句话作用，直接显示在图上）+ `desc` | `references/schema.md` §1 |
+| 流程每一步是什么、起什么作用 | `sb.define("pipelines", id, {...})`；每个节点写 `role`（一句话作用，直接显示在图上）+ `desc`。**设计前先读 `patterns.md` P0**（粒度、文字长度上限、分组、状态来源） | `references/schema.md` §1、`patterns.md` P0 |
 | 每份数据：在哪、什么意义 | `sb.define("datasets", id, {...})`：`locations`（**有几个副本写几条**）+ `source` + `purpose` + `processing` | §2 |
 | 模型训练 | `sb.task(id, kind="train", model=…, datasets=[…], hparams=…)` + `sb.point(id, "loss", step, v)` | §3 |
 | 流程执行（每个数据要素到哪一步） | `sb.task(id, kind="run", pipeline=…)` + `sb.item(id, 要素id, step=节点id, status=…)` | §4 |
@@ -96,12 +96,15 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 
 ```mermaid
 flowchart LR
-    A["读项目<br/>列步骤与数据"] --> B["写 pipelines 定义<br/>role / desc / reads / writes"]
+    A["读项目<br/>列步骤与数据"] --> P0["读 patterns.md P0<br/>定粒度 · 文字长度 · 分组"]
+    P0 --> B["写 pipelines 定义<br/>role / desc / reads / writes"]
     B --> C["写 datasets 定义<br/>locations / source / purpose / processing"]
     C --> D["sb.milestone 初始化"]
     D --> E["sb.py validate"]
     E -->|"有警告"| B
-    E -->|"通过"| F["告诉用户页面地址"]
+    E -->|"通过"| V["打开页面看图：<br/>是否好读、分组框是否合理"]
+    V -->|"不好读"| B
+    V -->|"好读"| F["告诉用户页面地址"]
 ```
 
 **B. 跑任务：边跑边记**
@@ -259,6 +262,7 @@ flowchart LR
 ## 常见坑
 
 - `id` 只能含字母数字 `_ . -`，≤64 字符；节点引用格式 `"<图id>/<节点id>"`。
+- Pipeline 节点：`name` ≤ 11 个汉字、`role` ≤ 17 个汉字（超出在图上被截断，体检会警告）；一个节点只属于一个分组；`kind` 只有 7 个合法值——细节与理由见 `patterns.md` P0。
 - 要素很多（>200）时不要逐个 `sb.item`，改传 `step_counts`（**整体替换**，每次传完整快照）；怎么选见 `references/patterns.md` P10。
 - 并行支线上的要素：把「要素 × 支线」各当一个要素（P4）。图里**不能有环**，「重试」的表达方式见 P6。
 - 同一任务的普通进度每 60 秒才写入时间线一次（状态变化必写）；调试可设 `SB_EVENT_GAP=1`。

@@ -1,7 +1,7 @@
 "use strict";
 /* 资源管理视图：API Key / GPU / CPU / 磁盘 / 服务。所有文本经 textContent 写入。
    密钥永远不在页面上出现——这里只显示「从哪取、有没有、额度多少、什么时候过期」。 */
-import { h, bar, badge, clip, fmtBytes, fmtNum, fmtPct, fmtTime } from "./util.js";
+import { h, bar, badge, clip, fmtBytes, fmtNum, fmtPct, fmtTime, foldBtn, foldBody, isFolded } from "./util.js";
 import { S } from "./store.js";
 
 export const RES_KIND = { apikey: "API Key", gpu: "GPU", cpu: "CPU", disk: "磁盘 / 存储", service: "服务", other: "其他" };
@@ -108,8 +108,8 @@ function itemBody(it, full) {
 const issueList = (it) => (it.issues && it.issues.length
   ? h("ul", { class: "alist", "data-key": "iss" }, it.issues.map((x, i) => h("li", { "data-key": "i" + i, class: `st-${x.level === "bad" ? "failed" : x.level === "warn" ? "stale" : "pending"}` }, h("i"), x.text))) : null);
 
-function head(g, it, link) {
-  return h("div", { class: "task-head", "data-key": "hd" }, h("span", { class: "rico" }, ICON[it.kind] || "◇"), tag(RES_KIND[it.kind] || it.kind),
+function head(g, it, link, foldKey) {
+  return h("div", { class: "task-head", "data-key": "hd" }, foldKey ? foldBtn(foldKey) : null, h("span", { class: "rico" }, ICON[it.kind] || "◇"), tag(RES_KIND[it.kind] || it.kind),
     link ? h("span", { class: "name", title: it.name || it.id }, it.name || it.id) : h("span", { class: "name" }, it.name || it.id),
     it.state && it.state !== "active" ? h("span", { class: "badge st-stale" }, STATE_CN[it.state]) : null,
     h("span", { class: `badge hl-${it.health}` }, HEALTH[it.health] || it.health));
@@ -146,12 +146,13 @@ export function poolPage(g) {
   const tiles = KIND_ORDER.filter((k) => bk[k]).map((k) => h("div", { class: `rtile ${bk[k].bad ? "hc-bad" : bk[k].warn ? "hc-warn" : ""}`, "data-key": "rt:" + k },
     h("div", { class: "rtn" }, h("span", { class: "rico" }, ICON[k]), String(bk[k].n)), h("div", { class: "tile-name" }, RES_KIND[k]),
     h("div", { class: "tile-sub" }, cap(k) || (bk[k].bad || bk[k].warn ? `${bk[k].bad} 异常 · ${bk[k].warn} 需关注` : "全部正常"))));
-  const sections = KIND_ORDER.filter((k) => bk[k]).map((k) => h("section", { "data-key": "rs:" + k }, h("h2", {}, `${ICON[k]} ${RES_KIND[k]}`, h("small", {}, `${bk[k].n} 项`)),
-    h("div", { class: "tasks" }, g.items.filter((x) => x.kind === k).map((it) => itemMini(g, it)))));
-  return [h("div", { class: "card", "data-key": "rphead" }, h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), g._example ? tag("范例", "ex") : null,
+  const sections = KIND_ORDER.filter((k) => bk[k]).map((k) => h("section", { "data-key": "rs:" + k }, h("h2", {}, foldBtn(`rs:${g.id}:${k}`), `${ICON[k]} ${RES_KIND[k]}`, h("small", {}, `${bk[k].n} 项`)),
+    foldBody(`rs:${g.id}:${k}`, [h("div", { class: "tasks" }, g.items.filter((x) => x.kind === k).map((it) => itemMini(g, it)))])));
+  const hk = "rp:" + g.id;
+  return [h("div", { class: "card" + (isFolded(hk) ? " folded" : ""), "data-key": "rphead" }, h("div", { class: "g-head" }, foldBtn(hk), h("h3", {}, g.title || g.id), g._example ? tag("范例", "ex") : null,
     sm.bad ? h("span", { class: "badge st-failed" }, `${sm.bad} 项异常`) : null, sm.warn ? h("span", { class: "badge st-stale" }, `${sm.warn} 项需关注`) : null),
-    g.description ? h("p", { class: "desc" }, g.description) : null,
-    g.live_probe ? null : h("div", { class: "warn" }, "正在回放历史：不显示本机实时探测（GPU / CPU / 磁盘），也不检查密钥是否存在于当前环境。")),
+    foldBody(hk, [g.description ? h("p", { class: "desc" }, g.description) : null,
+    g.live_probe ? null : h("div", { class: "warn" }, "正在回放历史：不显示本机实时探测（GPU / CPU / 磁盘），也不检查密钥是否存在于当前环境。")])),
     h("div", { class: "rtiles", "data-key": "rtiles" }, tiles), sections];
 }
 
@@ -174,14 +175,15 @@ export function itemPage(g, it) {
   }
   if (back.length) links.push(h("div", { "data-key": "back" }, "被以下资源引用：", back));
   const fld = (label, c) => (c ? h("div", { class: "fld", "data-key": "f:" + label }, h("div", { class: "fk" }, label), h("div", { class: "fv" }, c)) : null);
-  return h("div", { class: `card rescard hc-${it.health}`, "data-key": "ricard" }, head(g, it, false),
-    it.desc ? h("p", { class: "desc" }, it.desc) : null, itemBody(it, true), issueList(it),
+  const ik = `ri:${g.id}/${it.id}`;
+  return h("div", { class: `card rescard hc-${it.health}` + (isFolded(ik) ? " folded" : ""), "data-key": "ricard" }, head(g, it, false, ik),
+    foldBody(ik, [it.desc ? h("p", { class: "desc" }, it.desc) : null, itemBody(it, true), issueList(it),
     fld("怎么调用 / 申请", it.access), fld("负责人", it.owner), fld("备注", it.note),
     fld("动态备注", it.usage && it.usage.note ? `${it.usage.note}${it.usage.at ? "（更新于 " + fmtTime(it.usage.at) + "）" : ""}` : null),
     fld("正在使用它的", rel.length ? h("div", { class: "kv" }, rel) : null), links.length ? fld("关联", links) : null,
     it.kind !== "apikey" ? fld("分配情况", allocTable(it, true)) : null,
     it.tags && it.tags.length ? fld("标签", it.tags.map((x) => tag(x))) : null,
-    it.usage && it.usage.metrics ? fld("指标", h("div", { class: "metrics" }, Object.entries(it.usage.metrics).map(([k, v]) => h("span", { class: "metric", "data-key": "m" + k }, `${k}: ${typeof v === "number" ? fmtNum(v) : v}`)))) : null);
+    it.usage && it.usage.metrics ? fld("指标", h("div", { class: "metrics" }, Object.entries(it.usage.metrics).map(([k, v]) => h("span", { class: "metric", "data-key": "m" + k }, `${k}: ${typeof v === "number" ? fmtNum(v) : v}`)))) : null]));
 }
 
 /* 首页：需要关注 + 入口卡片副标题 */

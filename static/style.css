@@ -403,3 +403,9 @@ h3 > .fold { margin-right: 8px; vertical-align: middle; }
 .addrs { margin-top: 8px; }
 .addrs .addr { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin: 4px 0; }
 .addrs code { word-break: break-all; user-select: all; }
+
+/* 收纳：任务卡与资源卡的标题行 */
+.card.folded > .task-head { margin-bottom: 4px; }
+.card.task.folded { padding-bottom: 10px; }
+.card.folded > .pct-row { margin: 4px 0 0; }
+h2 > .fold { margin-right: 8px; vertical-align: middle; }
