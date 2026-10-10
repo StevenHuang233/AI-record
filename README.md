@@ -78,7 +78,7 @@ flowchart LR
 | `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据：血缘关系图 **或** 按分组的模块化清单（定义里 `layout` 决定默认，页面上随时切换）→ 单份数据：**所有存放地址（含备份，自动校验副本一致性）**、含义、来源、用处、被处理情况 |
 | `#/resources` → `#/resources/<池>` → `#/resources/<池>/<资源>` | **资源管理**：API Key（额度、过期、轮换、密钥是否可取）、GPU / CPU / 磁盘（容量、分配、本机实时探测）、对内服务；自动判断「正常 / 需关注 / 异常」并进入首页「需要关注」 |
 | `#/modules` → `#/modules/<id>` | 指标卡、柱状/折线图、表格、图片/音视频、jsonl 样本抽查、并排对比等 |
-| `#/review` → `#/review/<id>` | **成果校验工作台**：审阅模型生成的结果 / 清洗出来的数据。规则自动检查（统计每条规则不通过的行数，点规则只看对应样本）+ **按字段分面筛选 + 两个分面交叉的矩阵（每格条数与指标中位数）** + 人工逐条标记「合格 / 不合格 / 存疑」+ 备注；`diff` 字段直接看清洗前后改了什么；翻页、筛选视图；键盘 `J/K` 切换、`1/2/3` 标记 |
+| `#/review` → `#/review/<id>` | **成果校验工作台**：审阅模型生成的结果 / 清洗出来的数据。规则自动检查（统计每条规则不通过的行数，点规则只看对应样本）+ **按字段分面筛选 + 两个分面交叉的矩阵（每格条数与指标中位数）** + 人工逐条标记「合理 / 偏弱 / 判错 / 不确定」+ 备注；`diff` 字段直接看清洗前后改了什么；翻页、筛选视图；键盘 `J/K` 切换、`1/2/3/4` 标记 |
 | 底部时间线（全局） | 拖动 / 播放(0.5x–8x) / 上一个下一个 / 仅看关键事件 / 里程碑旗标；回放时节点平移、连线形变、进度条增长、曲线延伸、元素淡入淡出；回放中可继续点进子页面 |
 
 ## 快速使用
@@ -113,7 +113,7 @@ flowchart LR
     A["成果 jsonl<br/>(资源目录)"] --> B["reviews 定义<br/>fields · rules · from"]
     B --> C["后台扫描全部行<br/>规则自动检查"]
     C --> D["工作台：统计 + 筛选视图"]
-    D --> E["人工标记<br/>合格 / 不合格 / 存疑 + 备注"]
+    D --> E["人工标记<br/>合理 / 偏弱 / 判错 / 不确定 + 备注"]
     E --> F["汇总进首页「需要关注」<br/>与时间线（仅汇总数）"]
 ```
 
@@ -157,37 +157,28 @@ sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2
 - 页面只检查密钥「有没有」（环境变量非空 / 文件存在、非空、权限 600），**从不读取内容**。检查的是看板服务进程的环境。
 - `probe: "local"` 只探测**运行看板服务的这台机器**。看板**不会主动连接**任何远程地址；别的机器的用量请在那台机器上用 `sb.resource` 上报。
 
-## 扩展分支（还没合入 main）
+## 校验与展示的扩展能力
 
-仓库里另有 5 个特性分支，是在真实使用（视频评测集的校验与展示）中长出来的功能。**这些功能不在 main 上**。
-在 main 里写这些字段**不会报错，也不会生效**：在 main 上实测，`layout / facets / gallery / heatmap` 等字段能正常写入，页面却不显示；`sb.mark(..., "weak")` 则直接被拒绝。
+这些功能来自真实使用（视频评测集的校验与展示），已全部合入 `main`。字段写法见 `skills/status-board/references/schema.md` 对应章节。
 
-```mermaid
-flowchart LR
-    M["main"] --> G["feat/dataset-groups-and-brief<br/>数据分组 · brief · 清单布局"]
-    G --> B["共同底座<br/>分面筛选与矩阵 · 额外只读资源根"]
-    B --> F["feat/review-facets-and-matrix<br/>分组浏览 · 偏弱标记 · 卡片收纳<br/>头部显示存放地址"]
-    B --> Y["feat/review-gallery<br/>视频图库"]
-    Y --> T["feat/module-transition-blocks<br/>热力图 · 状态流转图"]
-    M --> K["feat/gander-eval-kit<br/>评测脚本集（独立目录）"]
-```
-
-| 分支 | 新增 | 字段与用法的文档 |
+| 能力 | 怎么用 | 文档 |
 |---|---|---|
-| `feat/dataset-groups-and-brief` | 数据图：`groups` 分组、节点 `brief` 一句话说明、`layout: "list"` 按分组列成清单；缺 `brief` 体检提醒 | 该分支的 `schema.md` §2 |
-| 共同底座（facets 与 gallery 两条线都包含，在 `dataset-groups-and-brief` 之上） | 校验集 `facets` 分面筛选 + `matrix` 交叉矩阵；`--asset-root` / `SB_ASSET_ROOTS` 额外只读资源根 | 该分支的 `schema.md` §7b、§7b-2 |
-| `feat/review-facets-and-matrix` | 在共同底座之上：校验集 `group_by` 两级分组浏览、`summary` 收起摘要；人工标记增加「偏弱」（`weak`，四档：合理 / 偏弱 / 判错 / 不确定）；通用卡片收纳 ▾/▸（状态存浏览器）；长说明折叠；图片点击放大；校验页头部显示这批数据的存放地址 | `group_by`、`summary`、`weak` 当前**只有代码、没写文档**（见该分支 `sbstore.py` 的 `_check_review`）；`group_by` 每级 `{key, label, catalog}`，最多两级，`catalog` 用来列出没有样本的分组；`summary` 最多 4 个字段名 |
-| `feat/review-gallery` | 校验集 `gallery` 块：视频图库（8 格矩阵、风格分布、筛选 / 排序 / 搜索、详情抽屉含播放器与时间轴）；`SB_REVIEW_LINE_MAX` 可调单行上限；`--asset-root` 额外资源根 | 该分支的 `schema.md` §7b-3 |
-| `feat/module-transition-blocks` | 在 gallery 之上增加展示模块 `heatmap`（转移矩阵热力图）与 `flow`（状态流转图），页面上可下载 SVG / PNG，可直接放论文 | 该分支的 `schema.md` §7 |
-| `feat/gander-eval-kit` | 在 Gander 上跑视频评测的脚本集：前后台驱动、判官兜底打分、通话轨迹记录；**只在 `gander_eval_kit/` 目录里，不改看板代码** | 该分支的 `gander_eval_kit/README.md`（含 14 条环境踩坑） |
+| 数据分组与清单 | 数据图 `groups` 分组、节点 `brief` 一句话说明（缺 `brief` 体检会提醒）、`layout: "list"` 按分组列成清单 | schema §2 |
+| 分面筛选与矩阵 | 校验集 `facets`（≤6 个）+ `matrix`：按字段筛，两个分面交叉出矩阵（每格条数与指标中位数） | schema §7b-2 |
+| 分组浏览 | 校验集 `group_by`（最多两级，`catalog` 可列出没有样本的分组）、`summary`（卡片收起后显示的摘要，≤4 个字段名） | `sbstore.py` 的 `_check_review`（schema 里还没有专门章节） |
+| 四档人工标记 | 合理 `pass` / 偏弱 `weak` / 判错 `fail` / 不确定 `doubt`；键盘 `1` `2` `3` `4`，`N` 写备注 | schema §7b |
+| 卡片收纳 | 标题行 ▾/▸ 收起，状态存浏览器；长说明折叠；图片点击放大；校验页头部显示数据存放地址 | — |
+| 视频图库 | 校验集 `gallery` 块：8 格矩阵、风格分布、筛选 / 排序 / 搜索、详情抽屉（播放器 + 时间轴） | schema §7b-3 |
+| 额外只读资源根 | 启动参数 `--asset-root 别名=路径`（或 `SB_ASSET_ROOTS`），视频留在共享盘不复制 | schema §7b |
+| 热力图与状态流转图 | 展示模块块 `heatmap`、`flow`，可下载 SVG / PNG | schema §7 |
+| Gander 评测脚本集 | 独立目录 `gander_eval_kit/`，不依赖看板代码，含 14 条环境踩坑 | `gander_eval_kit/README.md` |
 
-- **合并注意**：`review-facets-and-matrix` 和 `module-transition-blocks` 两条线都改了 `review.py`、`static/app.js`、`static/pages.js`、`static/style.css`，直接合并会冲突（用 `git merge-tree` 试过），需要人工解决。`dataset-groups-and-brief` 是两条线共同的底座，先合它最稳。
-- **合并后要跑测试**：这些分支带 `tests/`（`test_status_board.py`、`test_asset_roots_http.py`、`test_static.mjs`），main 上还没有。
-- **怎么判断当前代码有没有某个功能**：`git grep -q group_by -- sbstore.py && echo 有 || echo 没有`（关键字可换成 `layout` / `facets` / `gallery` / `weak`；`asset-root` 查 `server.py`，`heatmap` 查 `static/views.js`）。没匹配时 `git grep` 没有任何输出，退出码是 1，所以别用「看返回是不是 0」来判断。
+- 图库、校验页、首页三处的标记档位和键位保持一致（`1` 合理 / `2` 偏弱 / `3` 判错 / `4` 不确定）。
+- 同一个校验集可以同时配 `gallery`、`facets` / `matrix`、`group_by`，扫描只做一遍。
 
 ## 实践经验
 
-下面是在真实评测与校验中踩出来的经验。标 **[分支]** 的功能需要先合并对应分支。
+下面是在真实评测与校验中踩出来的经验。
 
 ```mermaid
 flowchart TD
@@ -199,15 +190,15 @@ flowchart TD
     B -->|"改了前端页面空白"| G["先跑前端渲染测试"]
 ```
 
-**1. 数据多了，关系图会挤成一团** **[分支]**
+**1. 数据多了，关系图会挤成一团**
 - 几十份数据时，别硬画关系图：给数据图加 `groups`（例如「原始 / 中间产物 / 发布版本」），每个节点写一句 `brief`；数量再多就设 `layout: "list"`，按分组列成表格，页面上仍可随时切回关系图。
 - `brief` 是显示在图上的一句话，`desc` 才是完整说明，两者不要混用。
 
-**2. 视频、图片、jsonl 已经在共享盘上：登记成只读根，别复制，别软链** **[分支]**
+**2. 视频、图片、jsonl 已经在共享盘上：登记成只读根，别复制，别软链**
 - 软链放进 `state/assets/` 会被拒绝：资源解析先取目标的**真实路径**，再要求它落在资源根之下，指向根外的软链一律当作越界。跨盘硬链同样不行。这是沙箱的设计，不能绕。
 - 正确做法：启动时 `python3 server.py --asset-root 别名=/共享盘/路径`（或 `SB_ASSET_ROOTS="a=/p:b=/q"`），样本里写 `别名/根内相对路径`。额外根永远只读，只能在启动时登记，没有任何写接口能添加。
-- 视频评测的一行常有几百 KB（带每页动作轨迹）。单行默认上限 200KB，超过的行会被跳过并计为「超长行」：整份都要看就调大，例如 `SB_REVIEW_LINE_MAX=2000000`（这个变量只在 gallery 这条线上；main 上上限固定 200KB）。
-- 大集首次扫描走后台线程：23306 条（约 480MB）约十几秒，之后走缓存（gallery 线）。
+- 视频评测的一行常有几百 KB（带每页动作轨迹）。单行默认上限 200KB，超过的行会被跳过并计为「超长行」：整份都要看就调大，例如 `SB_REVIEW_LINE_MAX=2000000`。
+- 大集首次扫描走后台线程：23306 条（约 480MB）约十几秒，之后走缓存。
 
 **3. 统计目录大小不要用 `du`**
 共享盘（ceph 的 dop-fuse）上，`du -sb <目录>` 会报虚高的目录项尺寸。只统计文件时用逐文件求和：
@@ -224,16 +215,35 @@ flowchart TD
 - 凭据只走环境变量，不落盘、不写进任何定义或上报内容（见「资源管理」）。
 
 **6. 改前端后一定要实际渲染一次**
-ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页面才暴露**，语法检查抓不到。`feat/dataset-groups-and-brief` 里就修过一个：`drawGraph` 里 `nodes` 先使用后声明，导致数据图整页渲染报错。分支里的 `tests/test_static.mjs` 把 `util.js` / `store.js` 换成最小桩后直接跑 `drawGraph`，改了 `static/*.js` 请跑一次（需要 Node 18+）。
+ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页面才暴露**，语法检查抓不到。合并前就出过一个：`drawGraph` 里 `nodes` 先使用后声明，导致数据图整页渲染报错。`tests/test_static.mjs` 把 `util.js` / `store.js` 换成最小桩后直接跑 `drawGraph`，改了 `static/*.js` 请跑一次（需要 Node 18+）。
 
 **7. 本地运行产物不要入库**
-启动服务会产生 `.sb_token`、`server.log`、`server.pid`，素材放进 `state/assets/` 也不该提交。`feat/review-facets-and-matrix` 的 `.gitignore` 已加了这几项；main 的 `.gitignore` 还没有，用到时请自行补上。
+启动服务会产生 `.sb_token`、`server.log`、`server.pid`，素材放进 `state/assets/` 也不该提交。`.gitignore` 已覆盖这几项。
 
-**8. 校验时人工标记的档位** **[分支]**
-只分「合格 / 不合格」不够用时，分支把人工标记改成四档：合理（`pass`）、偏弱（`weak`）、判错（`fail`）、不确定（`doubt`）。`weak` 表示「不算错，但质量偏弱」，适合评测集质检里把边缘样本单独拎出来。注意 main 的 `sb.mark` 只认 `pass / fail / doubt`。
+**8. 校验时人工标记的档位**
+人工标记是四档：合理（`pass`）、偏弱（`weak`）、判错（`fail`）、不确定（`doubt`）。`weak` 表示「不算错，但质量偏弱」，适合评测集质检里把边缘样本单独拎出来。`sb.mark` 和页面键位（`1`–`4`）都按这四档。
 
 **9. Gander 评测的环境踩坑**
-令牌格式、`transformers` 与 `deepspeed` 的循环导入、8B 全参训练 OOM、视觉塔与 Talker 模式冲突、HF 数据集 LFS 三步法、画面与音频走不同的 WebSocket 通道等 14 条，都和具体环境强相关，**不在这里重复**，见分支 `feat/gander-eval-kit` 的 `gander_eval_kit/README.md`（该目录不改看板代码，也不依赖看板）。
+令牌格式、`transformers` 与 `deepspeed` 的循环导入、8B 全参训练 OOM、视觉塔与 Talker 模式冲突、HF 数据集 LFS 三步法、画面与音频走不同的 WebSocket 通道等 14 条，都和具体环境强相关，**不在这里重复**，见 `gander_eval_kit/README.md`（该目录不改看板代码，也不依赖看板）。
+
+## 版本记录
+
+当前版本 **v1.0.0**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
+
+| 版本 | 提交 | 内容 |
+|---|---|---|
+| v1.0.0 | 本次整合 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图、额外只读资源根、Gander 评测脚本集、测试套件；README 增加用途、使用方法与实践经验 |
+| v0.6 | `939011c` | 资源管理：API Key（只登记来源、多层防泄露）、GPU / CPU / 磁盘 / 服务、本机探测、分配与健康判断；第六个范例 |
+| v0.5 | `e4f6575` | 成果校验：规则自动检查、人工逐条标记、键盘操作、`diff` 前后对比；第五个范例 |
+| v0.4 | `e7b50e5` | 四个形状各异的范例与播放器；防范例带偏的护栏（`_example` 标记、`/example/` 路径体检） |
+| v0.3 | `47d0228` | 子页面嵌套导航、米黄色主题；skill 移到 `skills/` 并在仓库内软链 |
+| v0.2 | `77d86f9` | 时间线回放、数据多地址管理、训练 / 执行 / 评测进程记录、定制展示模块、AI skill |
+| v0.1 | `6bb10d6` | Pipeline 结构图、数据管理图、任务进度 |
+
+**v1.0.0 合并时统一过的几处不一致**（两条开发线各自正确、合起来才会出现的问题）：
+- 图库与校验页的标记档位、键位统一为四档（`1` 合理 / `2` 偏弱 / `3` 判错 / `4` 不确定）；此前图库是三档、`2` 表示不合格，会让同一份数据在两个视图里标出相反的含义。
+- 扫描缓存键统一：图库配置、分面与矩阵、分组浏览三种扫描能力可以在同一个校验集上同时生效，只扫一遍。
+- 范例的数据节点补齐 `brief`，范例体检保持 0 警告。
 
 ## 范例
 
@@ -273,7 +283,7 @@ python3 server.py --state-dir examples/.play/all --port 8766
 ## 视频图库（成果校验的一种视图）
 
 成果是一行一条视频时，给校验集加 `gallery` 块，页面变成图库：8 格矩阵、风格分布、筛选 / 排序 / 搜索、卡片网格、详情抽屉（播放器 + 时间轴 + 提问 + 题目答案 + 动作与段信息），
-并且每条都能标合格 / 不合格 / 存疑。视频和 jsonl 留在共享盘，用 `--asset-root` 登记，不复制。字段约定与参数见 `skills/status-board/references/schema.md` §7b-3。
+并且每条都能标合理 / 偏弱 / 判错 / 不确定。视频和 jsonl 留在共享盘，用 `--asset-root` 登记，不复制。字段约定与参数见 `skills/status-board/references/schema.md` §7b-3。
 
 ```bash
 python3 server.py --asset-root releases=/共享盘/path/runs        # 视频评测行常有几百 KB：再设 SB_REVIEW_LINE_MAX=2000000
@@ -295,10 +305,13 @@ ES 模块写错（例如 `const` 先用后声明）只有打开页面才会暴�
 
 ```
 server.py    HTTP 服务 + 状态汇总 + 时间线回放     sb.py     上报库 / 命令行
-sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph views review resources pages timeline app）
-review.py    成果校验：规则引擎、后台扫描、分页读取
+sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph transition views timeline review gallery resources pages app）
+review.py    成果校验：规则引擎、后台扫描、分面 / 分组 / 分页读取
+clipview.py  视频图库：把一行视频记录整理成卡片与详情
 resources.py 资源管理：密钥可用性检查（不读内容）、本机探测、健康判断
 state/       真实数据：board.json pipelines/ datasets/ modules/ reviews/ resources/ tasks/ marks/ usage/ assets/ timeline.jsonl（新 clone 为空）
 examples/    范例（虚构内容）+ play.py 播放器；播放结果写在 examples/.play/（已忽略）
+tests/       测试：test_status_board.py、test_asset_roots_http.py（纯 Python）、test_static.mjs、e2e_gallery.mjs（需要 Node）
+gander_eval_kit/   Gander 视频评测脚本集（独立，不依赖看板代码）
 skills/status-board/              给 AI 的使用说明（.codebuddy/skills/ 下有软链）
 ```

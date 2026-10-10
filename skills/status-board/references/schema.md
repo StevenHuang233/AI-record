@@ -145,7 +145,7 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 
 ## 7b. 成果校验 `reviews/<id>.json`
 
-用来**逐条审阅一批成果**：模型生成的回答、清洗出来的数据、标注结果……规则自动检查 + 人工标记（合格 / 不合格 / 存疑）。
+用来**逐条审阅一批成果**：模型生成的回答、清洗出来的数据、标注结果……规则自动检查 + 人工标记（合理 / 偏弱 / 判错 / 不确定）。
 成果是一个 `.jsonl`（一行一个 JSON 对象），放在资源目录里。校验集**可以独立存在**，不依赖 Pipeline。
 
 ```json
@@ -211,15 +211,15 @@ python3 server.py --asset-root releases=/共享盘/path/runs --asset-root pics=/
 
 `severity`：`error`（默认）/ `warn`（提示级）。字段不存在时，除 `notcontains`/`notequals`/`notin`/`neq_field` 外一律判不通过——**想表达"没有就算了"请先用 `exists` 单独成规则**。
 
-**人工标记**：页面里选中样本按 `1` 合格 / `2` 不合格 / `3` 存疑（再按一次取消），`J`/`K` 上下切换，`N` 写备注。脚本也可以标：
+**人工标记**：页面里选中样本按 `1` 合理 / `2` 偏弱 / `3` 判错 / `4` 不确定（再按一次取消），`J`/`K` 上下切换，`N` 写备注。脚本也可以标：
 
 ```python
 sb.review_rows(rows, "out/answers.jsonl")                 # 把一批成果写成资源目录里的 jsonl（原子替换）
 sb.define("reviews", "r1", {...})                         # 声明校验集
-sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开始，空行不计；verdict=None 清除
+sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开始，空行不计；verdict: pass 合理 / weak 偏弱 / fail 判错 / doubt 不确定；None 清除
 ```
 
-标记保存在 `state/marks/<id>.json`（记录标记时那一行的内容哈希，源文件改动后该标记会显示「可能过期」）；**时间线里只记汇总数**（合格/不合格/存疑），不带逐条明细，且同一校验集 60 秒内最多写一条事件。
+标记保存在 `state/marks/<id>.json`（记录标记时那一行的内容哈希，源文件改动后该标记会显示「可能过期」）；**时间线里只记汇总数**（合理/偏弱/判错/不确定），不带逐条明细，且同一校验集 60 秒内最多写一条事件。
 
 **注意**
 - `source` 只能是资源目录内的相对路径、以 `.jsonl` 结尾；`..`、绝对路径、指向目录外的软链都会被拒绝。
@@ -255,7 +255,7 @@ sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开
 成果是「每行一条视频」（例如视频评测集的 `video_eval.jsonl`）时，加一个 `gallery` 块，校验台就换成图库视图：
 侧栏按数据集分组 → 8 格矩阵（条数 + 时长中位 / 范围）+ 风格分布 + 规则检查 → 筛选条（校验视图 / 页数 / 目标页 / 风格 / 排序 / 搜索）→ 卡片网格（缩略图、页数、提问次数、时长）
 → 点卡片开详情抽屉（播放器、抽帧、拍摄参数、**时间轴**（动作块 / 页面可见区间 / 提问标记，点哪跳哪）、提问列表、题目与参考答案、计分题表、动作变化表、每页段信息）。
-每张卡和抽屉里都能标 合格 / 不合格 / 存疑（抽屉里按 `1` `2` `3`，`N` 写备注，`← →` 切换，`Esc` 关闭）。
+每张卡和抽屉里都能标 合理 / 偏弱 / 判错 / 不确定（抽屉里按 `1` `2` `3` `4`，`N` 写备注，`← →` 切换，`Esc` 关闭）。
 
 ```json
 {
@@ -367,7 +367,7 @@ python3 sb.py node datasets <图> <节点> --status ready --meta count=70000
 python3 sb.py define pipelines main main.json
 python3 sb.py milestone "v2 发布" --note "…" --tag v2
 python3 sb.py define reviews r1 review.json
-python3 sb.py mark r1 12 fail --note "拒答"      # verdict: pass | fail | doubt | clear
+python3 sb.py mark r1 12 fail --note "拒答"      # verdict: pass 合理 | weak 偏弱 | fail 判错 | doubt 不确定 | clear 清除
 python3 sb.py define resources pool res.json
 python3 sb.py resource pool llm_main --used 1250000 --note "本月"
 python3 sb.py resource pool gpu_a --alloc "微调=4:任务id" --alloc "评测=2"      # 整体替换；--alloc none 清空
