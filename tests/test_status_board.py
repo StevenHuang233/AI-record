@@ -99,6 +99,26 @@ class ValidateReportTests(_StateCase):
         self.assertEqual(errs, [], errs)
 
 
+class LayoutTests(unittest.TestCase):
+    """layout：list = 按分组的模块化清单，graph = 关系图（默认）。"""
+    def test_layout_list_accepted(self):
+        obj = graph([data_node("a", brief="x")], groups=[{"id": "raw", "name": "原始", "nodes": ["a"]}])
+        obj["layout"] = "list"
+        self.assertEqual(sbstore.clean_definition("datasets", obj)["layout"], "list")
+
+    def test_layout_graph_accepted_and_absent_by_default(self):
+        obj = graph([data_node("a", brief="x")])
+        obj["layout"] = "graph"
+        self.assertEqual(sbstore.clean_definition("datasets", obj)["layout"], "graph")
+        self.assertNotIn("layout", sbstore.clean_definition("datasets", graph([data_node("a", brief="x")])))
+
+    def test_layout_rejects_other_values(self):
+        obj = graph([data_node("a", brief="x")])
+        obj["layout"] = "mindmap"
+        with self.assertRaises(ValueError):
+            sbstore.clean_definition("datasets", obj)
+
+
 class RoundTripTests(_StateCase):
     def test_dataset_groups_and_brief_survive_roundtrip(self):
         self._define("datasets", "g", graph([data_node("a", brief="一句话说明")],

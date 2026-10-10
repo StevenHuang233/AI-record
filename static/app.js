@@ -71,6 +71,8 @@ async function pullTimeline() {
 }
 
 onAction("selnode", (key, id) => { S.sel[key] = id; render(); });
+/* 数据图：在「分组清单」和「关系图」之间切换（记住每张图的选择） */
+onAction("dsview", (key, mode) => { S.sel[`${key}#view`] = mode; render(); });
 /* 成果校验工作台的交互 */
 onAction("rvview", (k) => setView(k));
 onAction("rvrule", (id) => setRule(id));

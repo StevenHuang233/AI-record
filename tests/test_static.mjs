@@ -109,6 +109,27 @@ try {
   ok("Pipeline 图：结构与作用不受影响", false, e.message);
 }
 
+/* 分组清单（layout: "list"）：一组一块，块里是表格；不画关系图 */
+try {
+  const V = await import(join(dir, "views.js"));
+  const g = dataGraph();
+  g.layout = "list";
+  const el = V.datasetCard(g);
+  const cards = all(el).filter((n) => n.attrs && String(n.attrs.class).includes("dgroup"));
+  const t = texts(el);
+  ok("分组清单：按 groups 分块", cards.length === 2, "块数 " + cards.length);
+  ok("分组清单：块标题是分组名", t.includes("原始") && t.includes("发布版本"));
+  ok("分组清单：每份数据带一句话说明", t.some((x) => x.includes("C v2.0：300 条视频")));
+  ok("分组清单：不画关系图", all(el).every((n) => n.tag !== "svg"));
+  ok("分组清单：提供切回关系图的入口", all(el).some((n) => n.attrs && n.attrs["data-act"] === "dsview"));
+
+  const g2 = dataGraph();
+  const el2 = V.datasetCard(g2);          // 默认仍是关系图
+  ok("默认仍是关系图", all(el2).some((n) => n.tag === "svg"));
+} catch (e) {
+  ok("分组清单渲染", false, e.message);
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(fails ? `\n${fails} 项失败` : "\n全部通过");
 process.exit(fails ? 1 : 0);

@@ -309,11 +309,43 @@ export function pipelineCard(g) {
     h("div", { class: "cols" }, pipeNodeDetail(g, g.nodes.find((n) => n.id === sel)), h("div", { class: "panel", "data-key": "steps" }, h("h4", {}, "各步骤的作用（按流程顺序）"), steps)));
 }
 
+/* 一行数据资产（清单视图和分组模块共用） */
+function assetRow(g, n, sel, key, maxSz) {
+  const m = n.meta || {}, sz = nodeSize(n);
+  return h("tr", { class: `click ${n.id === sel ? "sel" : ""}`, "data-key": "dr:" + n.id, "data-act": "selnode", "data-a1": key, "data-a2": n.id, role: "button", tabindex: 0 },
+    h("td", {}, h("b", {}, n.name || n.id), n.brief ? h("div", { class: "id" }, clip(n.brief, 60)) : null),
+    h("td", {}, DATA_KIND[n.kind] || n.kind || "-"),
+    h("td", {}, (n.locations || []).length ? `${n.locations.length} 个` : "未记录", n.replica ? [" ", h("span", { class: `badge rep-${n.replica}` }, REPLICA[n.replica])] : null),
+    h("td", { class: "num" }, sz != null ? [fmtBytes(sz), " ", h("span", { class: "sizebar", style: { width: Math.max(2, 60 * sz / maxSz) + "px" } })] : "-"),
+    h("td", { class: "num" }, m.count != null ? `${fmtNum(m.count)} ${m.count_unit || "条"}` : "-"),
+    h("td", {}, m.version || "-"), h("td", {}, badge(n.status, NODE_ST)));
+}
+
+const ASSET_COLS = ["名称（含一句话说明）", "类型", "存放地址", "大小", "条数", "版本", "状态"];
+
+/* 按 groups 分组的模块化清单：一组一块，块里是表格。layout="list" 时用（关系图看不清几十份数据时用它） */
+export function datasetList(g, sel, key, maxSz) {
+  const groups = (g.groups || []).filter((x) => (x.nodes || []).length);
+  const used = new Set(groups.flatMap((x) => x.nodes));
+  const buckets = [...groups.map((x) => ({ name: x.name, desc: x.desc, ids: x.nodes })),
+                   ...(g.nodes.some((n) => !used.has(n.id))
+                     ? [{ name: "未分组", desc: "", ids: g.nodes.filter((n) => !used.has(n.id)).map((n) => n.id) }] : [])];
+  const nmap = new Map(g.nodes.map((n) => [n.id, n]));
+  return buckets.map((b, i) => h("div", { class: "card dgroup", "data-key": "dg:" + i, "data-fade": 1 },
+    h("div", { class: "g-head" }, h("h3", {}, b.name), h("span", { class: "kv" }, `${b.ids.length} 份`),
+      b.desc ? h("span", { class: "desc" }, "：" + b.desc) : null),
+    h("div", { class: "tbl-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, ASSET_COLS.map((c) => h("th", {}, c)))),
+      h("tbody", {}, b.ids.filter((id) => nmap.has(id)).map((id) => assetRow(g, nmap.get(id), sel, key, maxSz)))))));
+}
+
 export function datasetCard(g) {
   if (g.error) return h("div", { class: "card err", "data-key": "ds:" + g.id }, `${g.id}: ${g.error}`);
   const kind = "datasets", key = `${kind}/${g.id}`;
   const sel = S.sel[key] || null;
-  const { el, order } = drawGraph(kind, g, sel, key);
+  const asList = (S.sel[`${key}#view`] || (g.layout === "list" ? "list" : "")) === "list";
+  const { el, order } = asList ? { el: null, order: orderedNodes(g).map((n) => g.nodes.indexOf(n)) }
+                               : drawGraph(kind, g, sel, key);
   const sized = g.nodes.map((n) => ({ n, sz: nodeSize(n) }));
   const total = sized.reduce((a, x) => a + (x.sz || 0), 0);
   const maxSz = Math.max(1, ...sized.map((x) => x.sz || 0));
@@ -327,30 +359,32 @@ export function datasetCard(g) {
   const stores = [...byStore.entries()].sort((a, b) => b[1] - a[1]);
   const issues = g.nodes.filter((n) => ["missing", "failed", "stale"].includes(n.status) || n.replica === "mismatch" || n.replica === "missing_copy");
   const noLoc = g.nodes.filter((n) => !(n.locations || []).length).length;
-  const rows = order.map((i) => {
-    const n = g.nodes[i], m = n.meta || {}, sz = nodeSize(n);
-    return h("tr", { class: `click ${n.id === sel ? "sel" : ""}`, "data-key": "dr:" + n.id, "data-act": "selnode", "data-a1": key, "data-a2": n.id, role: "button", tabindex: 0 },
-      h("td", {}, h("b", {}, n.name || n.id), n.brief ? h("div", { class: "id" }, clip(n.brief, 60)) : null),
-      h("td", {}, DATA_KIND[n.kind] || n.kind || "-"),
-      h("td", {}, (n.locations || []).length ? `${n.locations.length} 个` : "未记录", n.replica ? [" ", h("span", { class: `badge rep-${n.replica}` }, REPLICA[n.replica])] : null),
-      h("td", { class: "num" }, sz != null ? [fmtBytes(sz), " ", h("span", { class: "sizebar", style: { width: Math.max(2, 60 * sz / maxSz) + "px" } })] : "-"),
-      h("td", { class: "num" }, m.count != null ? `${fmtNum(m.count)} ${m.count_unit || "条"}` : "-"),
-      h("td", {}, m.version || "-"), h("td", {}, badge(n.status, NODE_ST)));
-  });
-  return h("div", { class: "card", id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
+  const rows = order.map((i) => assetRow(g, g.nodes[i], sel, key, maxSz));
+  const toggle = h("a", { class: "xlink", "data-key": "view-toggle", "data-act": "dsview", "data-a1": key,
+    "data-a2": asList ? "graph" : "list", role: "button", tabindex: 0, title: "切换显示方式" },
+    asList ? "切成关系图" : "切成分组清单");
+  const overview = h("div", { class: "card", id: "ds-" + g.id, "data-key": "ds:" + g.id, "data-fade": 1 },
     h("div", { class: "g-head" }, h("h3", {}, g.title || g.id), exTag(g), h("span", { class: "kv" }, `${g.nodes.length} 个数据资产`, total ? ` · 已知总量 ${fmtBytes(total)}` : ""),
-      issues.length ? h("span", { class: "badge st-failed" }, `${issues.length} 项异常`) : null, noLoc ? h("span", { class: "badge stale" }, `${noLoc} 项未记录地址`) : null),
+      issues.length ? h("span", { class: "badge st-failed" }, `${issues.length} 项异常`) : null, noLoc ? h("span", { class: "badge stale" }, `${noLoc} 项未记录地址`) : null, toggle),
     g.description ? h("p", { class: "desc" }, g.description) : null,
-    (g.groups || []).some((x) => x.nodes.length) ? h("div", { class: "grp-legend" }, g.groups.filter((x) => x.nodes.length).map((x, i) => h("span", { class: `gl gc-${i % 5}`, "data-key": "gg" + i }, h("b", {}, x.name), x.desc ? "：" + x.desc : ""))) : null,
-    el,
-    h("div", { class: "legend" }, "图示：节点=数据资产，箭头=数据流向（箭头上的文字是加工过程），虚线流动=下游正在处理。点击节点查看地址、来源、用处和处理情况。"),
-    legend(NODE_ST, ["ready", "building", "stale", "missing", "failed"]),
     stores.length ? h("div", { class: "mt" }, h("div", { class: "kv" }, "主存储位置占比"),
       h("div", { class: "stack" }, stores.map(([k, v], i) => h("span", { class: `sp-${i % 6}`, "data-key": "sp" + i, style: { width: (100 * v / total) + "%" }, title: `${k}: ${fmtBytes(v)}` }))),
       h("div", { class: "legend" }, stores.map(([k, v], i) => h("span", { "data-key": "sl" + i }, h("i", { class: `sp-${i % 6}` }), `${k} ${fmtBytes(v)}（${(100 * v / total).toFixed(1)}%）`)))) : null,
+    legend(NODE_ST, ["ready", "building", "stale", "missing", "failed"]));
+  if (asList) {
+    return h("div", { class: "ds-list", "data-key": "dsl:" + g.id },
+      overview,
+      h("div", { class: "legend", "data-key": "dsltip" }, "按分组列出每一份数据：点任意一行看它的含义、来源、用处和存放地址。"),
+      datasetList(g, sel, key, maxSz),
+      dataNodeDetail(g, g.nodes.find((n) => n.id === sel)));
+  }
+  return h("div", { class: "ds-graph", "data-key": "dsg:" + g.id }, overview,
+    (g.groups || []).some((x) => x.nodes.length) ? h("div", { class: "grp-legend" }, g.groups.filter((x) => x.nodes.length).map((x, i) => h("span", { class: `gl gc-${i % 5}`, "data-key": "gg" + i }, h("b", {}, x.name), x.desc ? "：" + x.desc : ""))) : null,
+    el,
+    h("div", { class: "legend" }, "图示：节点=数据资产，箭头=数据流向（箭头上的文字是加工过程），虚线流动=下游正在处理。点击节点查看地址、来源、用处和处理情况。"),
     h("div", { class: "cols" }, dataNodeDetail(g, g.nodes.find((n) => n.id === sel)),
       h("div", { class: "panel", "data-key": "list" }, h("h4", {}, "数据资产清单"), h("div", { class: "tbl-wrap" }, h("table", {},
-        h("thead", {}, h("tr", {}, ["名称", "类型", "存放地址", "大小", "条数", "版本", "状态"].map((c) => h("th", {}, c)))), h("tbody", {}, rows))))));
+        h("thead", {}, h("tr", {}, ASSET_COLS.map((c) => h("th", {}, c)))), h("tbody", {}, rows))))));
 }
 
 /* ── 定制展示模块 ─────────────────────────────────────────────────────────── */

@@ -677,6 +677,9 @@ def clean_definition(coll: str, obj) -> dict:
         for e in edges:
             if not isinstance(e, dict) or e.get("from") not in ids or e.get("to") not in ids:
                 raise ValueError(f"边引用了不存在的节点: {e}")
+        layout = obj.get("layout")
+        if layout is not None and layout not in ("graph", "list"):
+            raise ValueError('layout 只能是 "graph"（关系图）或 "list"（按分组的模块化清单）')
         groups = obj.get("groups", [])
         if not isinstance(groups, list):
             raise ValueError("groups 必须是列表")
