@@ -15,6 +15,8 @@ import subprocess
 import threading
 import time
 
+import versions
+
 PROBE_TTL = float(os.environ.get("SB_PROBE_TTL", "5"))
 UNIT_BYTES = {"B": 1, "KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3, "TB": 1024 ** 4, "PB": 1024 ** 5}
 WARN_DAYS = 14
@@ -299,10 +301,13 @@ def derive(g: dict, usage, now: float, live: bool, show_paths: bool) -> None:
     umap = (usage or {}).get("items") if isinstance(usage, dict) else {}
     umap = umap if isinstance(umap, dict) else {}
     kinds: dict = {}
+    versions.annotate(g.get("items", []), scope=lambda x: x.get("kind") or "")        # 同一个池里、同类资源的多个版本（如轮换后的密钥）
     for it in g.get("items", []):
         derive_item(it, umap.get(it["id"]) or {}, today, live, show_paths)
         k = kinds.setdefault(it["kind"], {"n": 0, "bad": 0, "warn": 0, "off": 0, "capacity": 0, "allocated": 0, "free": 0})
         k["n"] += 1
+        if versions.is_hist(it):                       # 被新版本取代的历史版本：不计入异常 / 需关注 / 容量（旧密钥过期是预期的）
+            continue
         if it["health"] in ("bad", "warn", "off"):
             k[it["health"]] += 1
         if it.get("capacity"):

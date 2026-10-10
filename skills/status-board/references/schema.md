@@ -1,6 +1,9 @@
 # status_board 数据格式参考
 
 所有 `id`：字母数字 `_ . -`，≤64。节点引用写作 `"<图id>/<节点id>"`。
+
+**多个版本（通用）**：Pipeline / 数据图（及其节点）/ 展示模块 / 校验集 / 任务 / 资源项，都可以带 `family`（同一个东西的所有版本写同一个值，≤40 字）+ `version`（版本号字符串，≤20 字，写成数字会被拒绝）。
+页面上最新版照常显示，历史版本收在「▸ 历史版本 N 个」后面。谁是最新由服务端按版本号数字段比大小。何时用、各处表现、历史版本为什么不报异常见 `patterns.md` P8b。
 写入定义：`sb.define(coll, id, dict_or_json_path)` 或 `python3 sb.py define <coll> <id> <file|->`（`-` 读 stdin）。
 
 ## 1. Pipeline `pipelines/<id>.json`
@@ -8,6 +11,7 @@
 ```json
 {
   "title": "标题", "description": "整体中文说明",
+  "family": "可选：Pipeline 改版时，所有版本写同一个值", "version": "可选：v2.0",
   "groups": [{"id": "prep", "name": "数据准备", "desc": "阶段说明", "nodes": ["collect", "clean"]}],
   "nodes": [{
     "id": "clean", "name": "清洗过滤", "kind": "process",
@@ -57,7 +61,7 @@
 - **多个版本（`family` + `version`，可选）**：同一份数据有 v1.0、v2.0 这样的迭代时，**每个版本各建一个节点**，写同一个 `family`（≤40 字）、各自的 `version`（字符串，≤20 字，写成数字会被拒绝）。
   清单里该份数据只显示**最新版**，历史版本收在「▸ 历史版本 N 个」按钮后面（默认收起，点选历史版本时自动展开）；详情页有「所有版本」可跳转。
   最新版 = 版本号里数字段逐段比最大的（`v1.10` > `v1.9`）；有版本号不含数字时退回「列表里靠后的算新」。关系图**不收纳**，每个版本仍是一个节点，第二行带版本号。
-  体检会抓：缺 `version`、`family` 只有 1 个节点、版本号重复、版本号不含数字。何时该用、怎么连线见 `patterns.md` P8b。
+  体检会抓：缺 `version`、`family` 只有 1 个成员、版本号重复、版本号不含数字。**同一对字段也适用于 Pipeline / 展示模块 / 校验集（写在定义顶层）、任务（`sb.task(family=, version=)`，只在同一 `kind` 内归组）、资源项（只在同一池、同一 `kind` 内归组）**，何时该用、怎么连线、各处的表现见 `patterns.md` P8b。
 - **`layout`（可选）**：`"graph"`（默认）画成关系图；`"list"` 不画图，改成**按 `groups` 分组的模块化清单**——一组一块，块里是表格，
   表头带一句话说明。数据几十份时关系图会挤成一团，用 `"list"` 更清楚。页面上随时可以切换，这个字段只是决定默认用哪种。
   用了 `"list"` 却没写 `groups` 时，全部资产归到「未分组」一块。
@@ -119,7 +123,7 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 ## 7. 定制展示模块 `modules/<id>.json`
 
 ```json
-{"title": "...", "description": "...", "blocks": [ {"type": "..."}, ... ]}
+{"title": "...", "description": "...", "blocks": [ {"type": "..."}, ... ], "family": "可选", "version": "可选：v2.0"}
 ```
 
 | type | 字段 |
@@ -163,6 +167,7 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 {
   "title": "标题", "description": "这批成果是什么、为什么要校验、怎么判定合格（判定标准写清楚）",
   "kind": "model_output | cleaned_data | generic",
+  "family": "可选：同一份成果的多批校验写同一个值", "version": "可选：v2.0",
   "from": {"task": "任务id", "dataset": "数据图id/节点id", "model": "模型名", "note": "批次说明"},
   "source": "相对资源目录的路径.jsonl",
   "page_size": 8,   // 想放视频/图片：把文件放进资源目录，字段 type 写 video/image/audio

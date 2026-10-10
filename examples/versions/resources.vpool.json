@@ -1,0 +1,44 @@
+{
+ "_example": "versions",
+ "title": "示例：密钥轮换",
+ "description": "【范例】同一把「主力大模型密钥」轮换过一次：v2.0 是现在用的，v1.0 已撤销，留作审计。",
+ "items": [
+  {
+   "id": "llm_v2",
+   "name": "主力大模型密钥",
+   "kind": "apikey",
+   "family": "llm-key",
+   "version": "v2.0",
+   "state": "active",
+   "owner": "示例负责人",
+   "desc": "标注与评测用的大模型密钥",
+   "secret_ref": {
+    "env": "EXAMPLE_VER_KEY_V2_0"
+   },
+   "provider": "某大模型厂商",
+   "quota": {
+    "limit": 1000000,
+    "unit": "tokens",
+    "period": "month"
+   },
+   "expires": "2099-01-01",
+   "rotated": "2026-10-01",
+   "access": "从环境变量读取"
+  },
+  {
+   "id": "llm_v1",
+   "name": "主力大模型密钥",
+   "kind": "apikey",
+   "family": "llm-key",
+   "version": "v1.0",
+   "state": "revoked",
+   "owner": "示例负责人",
+   "desc": "标注与评测用的大模型密钥",
+   "secret_ref": {
+    "env": "EXAMPLE_VER_KEY_V1_0"
+   },
+   "provider": "某大模型厂商",
+   "note": "2026-10-01 轮换后撤销，保留记录便于审计"
+  }
+ ]
+}

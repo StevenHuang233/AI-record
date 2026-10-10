@@ -164,7 +164,7 @@ sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2
 | 能力 | 怎么用 | 文档 |
 |---|---|---|
 | 数据分组与清单 | 数据图 `groups` 分组、节点 `brief` 一句话说明（缺 `brief` 体检会提醒）、`layout: "list"` 按分组列成清单 | schema §2 |
-| 数据的多个版本 | 同一份数据有 v1.0 / v2.0 这样的迭代时，每个版本一个节点，写同一个 `family` + 各自的 `version`；清单里只显示最新版，历史版本收在「▸ 历史版本 N 个」后面（默认收起，点选历史版本时自动展开） | schema §2、`patterns.md` P8b |
+| 多个版本（全站通用） | 数据 / Pipeline / 展示模块 / 校验集 / 任务 / 资源，凡是同一个东西有 v1.0、v2.0 这样的迭代，每个版本一个条目，写同一个 `family` + 各自的 `version`；列表里只显示最新版，历史版本收在「▸ 历史版本 N 个」后面（默认收起，点选历史版本时自动展开；还在运行的历史任务自动展开）。被取代的历史版本不会让页面报「异常」 | `patterns.md` P8b、schema 顶部 |
 | 分面筛选与矩阵 | 校验集 `facets`（≤6 个）+ `matrix`：按字段筛，两个分面交叉出矩阵（每格条数与指标中位数） | schema §7b-2 |
 | 分组浏览 | 校验集 `group_by`（最多两级，`catalog` 可列出没有样本的分组）、`summary`（卡片收起后显示的摘要，≤4 个字段名） | `sbstore.py` 的 `_check_review`（schema 里还没有专门章节） |
 | 四档人工标记 | 合理 `pass` / 偏弱 `weak` / 判错 `fail` / 不确定 `doubt`；键盘 `1` `2` `3` `4`，`N` 写备注 | schema §7b |
@@ -229,11 +229,12 @@ ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页
 
 ## 版本记录
 
-当前版本 **v1.0.2**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
+当前版本 **v1.0.3**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
 
 | 版本 | 提交 | 内容 |
 |---|---|---|
-| v1.0.2 | 本次 | 数据的多个版本：`family` + `version`，清单里收成「最新版 + 可展开的历史版本」；`ml-training` 范例演示 v1.0 / v2.0；4 条版本相关体检；`patterns.md` P8b |
+| v1.0.3 | 本次 | 版本收纳推广到全站：Pipeline / 展示模块 / 校验集 / 任务 / 资源 / 视频图库侧栏，都用同一对 `family` + `version`；最新版由服务端统一计算（新增 `versions.py`），历史版本不计入异常 / 需要关注；新增 `versions` 范例；修复图库侧栏按字符串排版本号（`v1.9` 排在 `v1.10` 前）的问题 |
+| v1.0.2 | `73f4ba4` | 数据的多个版本：`family` + `version`，清单里收成「最新版 + 可展开的历史版本」；`ml-training` 范例演示 v1.0 / v2.0；4 条版本相关体检；`patterns.md` P8b |
 | v1.0.1 | `0171913` | 收纳按钮补全（任务卡、步骤详情、数据详情、资源管理页）；Pipeline 设计策略（`patterns.md` P0）与三条新体检规则（`name` / `role` 过长、`kind` 非法、节点重复入组）；修正范例里一个被截断的 `role` |
 | v1.0.0 | 整合版本 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图（含自由布局、Pipeline 步骤内嵌展示块）、额外只读资源根、Gander 评测脚本集、测试套件；README 增加用途、使用方法与实践经验 |
 | v0.6 | `939011c` | 资源管理：API Key（只登记来源、多层防泄露）、GPU / CPU / 磁盘 / 服务、本机探测、分配与健康判断；第六个范例 |
@@ -250,10 +251,10 @@ ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页
 
 ## 范例
 
-`examples/` 里有六个**形状各异**的范例（线性链、扇入+关卡+扇出、并行支线、带人工关卡的纯步骤流、独立的成果校验集、资源登记），内容全是虚构的，只用来对照字段写法，**不是模板**。
+`examples/` 里有七个**形状各异**的范例（线性链、扇入+关卡+扇出、并行支线、带人工关卡的纯步骤流、独立的成果校验集、资源登记、同一个东西的多个版本），内容全是虚构的，只用来对照字段写法，**不是模板**。
 
 ```bash
-python3 examples/play.py                                     # 把六个范例模拟运行到一块临时看板（约 10 秒，只写 examples/.play/）
+python3 examples/play.py                                     # 把七个范例模拟运行到一块临时看板（约 10 秒，只写 examples/.play/）
 python3 server.py --state-dir examples/.play/all --port 8766
 ```
 
@@ -312,6 +313,7 @@ sbstore.py   存储层：校验、原子写、事件日志、体检   static/   
 review.py    成果校验：规则引擎、后台扫描、分面 / 分组 / 分页读取
 clipview.py  视频图库：把一行视频记录整理成卡片与详情
 resources.py 资源管理：密钥可用性检查（不读内容）、本机探测、健康判断
+versions.py  多个版本：family + version 的校验、排序、标注（谁是最新全站只在这里算）
 state/       真实数据：board.json pipelines/ datasets/ modules/ reviews/ resources/ tasks/ marks/ usage/ assets/ timeline.jsonl（新 clone 为空）
 examples/    范例（虚构内容）+ play.py 播放器；播放结果写在 examples/.play/（已忽略）
 tests/       测试：test_status_board.py、test_asset_roots_http.py（纯 Python）、test_static.mjs、e2e_gallery.mjs（需要 Node）

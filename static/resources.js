@@ -1,7 +1,7 @@
 "use strict";
 /* 资源管理视图：API Key / GPU / CPU / 磁盘 / 服务。所有文本经 textContent 写入。
    密钥永远不在页面上出现——这里只显示「从哪取、有没有、额度多少、什么时候过期」。 */
-import { h, bar, badge, clip, fmtBytes, fmtNum, fmtPct, fmtTime, foldBtn, foldBody, isFolded } from "./util.js";
+import { h, bar, badge, clip, fmtBytes, fmtNum, fmtPct, fmtTime, foldBtn, foldBody, isFolded, versionedCards, verTags, isHist } from "./util.js";
 import { S } from "./store.js";
 
 export const RES_KIND = { apikey: "API Key", gpu: "GPU", cpu: "CPU", disk: "磁盘 / 存储", service: "服务", other: "其他" };
@@ -108,17 +108,19 @@ function itemBody(it, full) {
 const issueList = (it) => (it.issues && it.issues.length
   ? h("ul", { class: "alist", "data-key": "iss" }, it.issues.map((x, i) => h("li", { "data-key": "i" + i, class: `st-${x.level === "bad" ? "failed" : x.level === "warn" ? "stale" : "pending"}` }, h("i"), x.text))) : null);
 
-function head(g, it, link, foldKey) {
+function head(g, it, link, foldKey, o = {}) {
   return h("div", { class: "task-head", "data-key": "hd" }, foldKey ? foldBtn(foldKey) : null, h("span", { class: "rico" }, ICON[it.kind] || "◇"), tag(RES_KIND[it.kind] || it.kind),
-    link ? h("span", { class: "name", title: it.name || it.id }, it.name || it.id) : h("span", { class: "name" }, it.name || it.id),
+    link ? h("span", { class: "name", title: it.name || it.id }, it.name || it.id) : h("span", { class: "name" }, it.name || it.id), verTags(it, o),
     it.state && it.state !== "active" ? h("span", { class: "badge st-stale" }, STATE_CN[it.state]) : null,
     h("span", { class: `badge hl-${it.health}` }, HEALTH[it.health] || it.health));
 }
 
 /* 池页里的紧凑卡片：整张可点；内部不放链接（避免嵌套 <a>） */
-export function itemMini(g, it) {
+const resHistText = (x) => (x.vversion || x.name || x.id) + (x.state && x.state !== "active" ? `（${STATE_CN[x.state] || x.state}）` : "");
+
+export function itemMini(g, it, o = {}) {
   return h("a", { class: `card mini rescard hc-${it.health}`, href: resHref(g.id, it.id), "data-key": "ri:" + it.id, "data-fade": 1 },
-    head(g, it, true), it.desc ? h("p", { class: "desc", style: { margin: "4px 0 6px" } }, clip(it.desc, 90)) : null,
+    head(g, it, true, null, o), it.desc ? h("p", { class: "desc", style: { margin: "4px 0 6px" } }, clip(it.desc, 90)) : null,
     itemBody(it, false), it.issues && it.issues.length ? h("div", { class: "issue1" }, it.issues[0].text, it.issues.length > 1 ? ` 等 ${it.issues.length} 项` : "") : null,
     it.owner ? h("div", { class: "id" }, "负责人 " + it.owner) : null);
 }
@@ -147,7 +149,7 @@ export function poolPage(g) {
     h("div", { class: "rtn" }, h("span", { class: "rico" }, ICON[k]), String(bk[k].n)), h("div", { class: "tile-name" }, RES_KIND[k]),
     h("div", { class: "tile-sub" }, cap(k) || (bk[k].bad || bk[k].warn ? `${bk[k].bad} 异常 · ${bk[k].warn} 需关注` : "全部正常"))));
   const sections = KIND_ORDER.filter((k) => bk[k]).map((k) => h("section", { "data-key": "rs:" + k }, h("h2", {}, foldBtn(`rs:${g.id}:${k}`), `${ICON[k]} ${RES_KIND[k]}`, h("small", {}, `${bk[k].n} 项`)),
-    foldBody(`rs:${g.id}:${k}`, [h("div", { class: "tasks" }, g.items.filter((x) => x.kind === k).map((it) => itemMini(g, it)))])));
+    foldBody(`rs:${g.id}:${k}`, [h("div", { class: "tasks" }, versionedCards(g.items.filter((x) => x.kind === k), { scope: `res:${g.id}:${k}`, card: (it, o) => itemMini(g, it, o), label: resHistText }))])));
   const hk = "rp:" + g.id;
   return [h("div", { class: "card" + (isFolded(hk) ? " folded" : ""), "data-key": "rphead" }, h("div", { class: "g-head" }, foldBtn(hk), h("h3", {}, g.title || g.id), g._example ? tag("范例", "ex") : null,
     sm.bad ? h("span", { class: "badge st-failed" }, `${sm.bad} 项异常`) : null, sm.warn ? h("span", { class: "badge st-stale" }, `${sm.warn} 项需关注`) : null),
@@ -192,6 +194,7 @@ export function resourceAttention(st) {
   for (const g of st.resources || []) {
     if (g.error) { out.push([`资源池 ${g.id} 解析失败`, resHref(g.id), "failed"]); continue; }
     for (const it of g.items) {
+      if (isHist(it)) continue;                              // 被新版本取代的旧版本（如轮换前的密钥）：过期、撤销都是预期的
       if (it.health === "bad" || it.health === "warn") {
         const first = it.issues.find((x) => x.level === it.health) || it.issues[0];
         out.push([`${RES_KIND[it.kind]}「${it.name || it.id}」${first ? "：" + first.text : ""}`, resHref(g.id, it.id), it.health === "bad" ? "failed" : "stale"]);

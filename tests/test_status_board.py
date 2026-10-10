@@ -14,6 +14,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 import sbstore  # noqa: E402
+import versions  # noqa: E402
 
 
 def graph(nodes, groups=None, edges=None, coll="datasets"):
@@ -99,8 +100,92 @@ class ValidateReportTests(_StateCase):
         self.assertEqual(errs, [], errs)
 
 
-class DatasetVersionTests(_StateCase):
-    """同一份数据的多个版本：family + version。写入时校验类型，体检抓容易写错的几种情况。"""
+class VersionAlgorithmTests(unittest.TestCase):
+    """versions.py：谁是最新（全站只有这一份判断）。"""
+    def _order(self, vs, fam="F"):
+        items = [{"id": f"n{i}", "family": fam, "version": v} for i, v in enumerate(vs)]
+        versions.annotate(items)
+        by = {x["id"]: x["version"] for x in items}
+        return [by[x["id"]] for x in sorted(items, key=lambda x: x["vrank"])]
+
+    def test_numeric_segments_not_string_order(self):
+        self.assertEqual(self._order(["v1.9", "v1.10", "v1.0"]), ["v1.10", "v1.9", "v1.0"])
+        self.assertEqual(self._order(["v9", "v10", "v2"]), ["v10", "v9", "v2"])
+        self.assertEqual(self._order(["1.2", "1.2.9", "1.2.10"]), ["1.2.10", "1.2.9", "1.2"])
+
+    def test_writing_order_does_not_matter(self):
+        self.assertEqual(self._order(["v2.0", "v1.0"]), self._order(["v1.0", "v2.0"]))
+
+    def test_equal_versions_later_item_wins(self):
+        self.assertEqual(self._order(["v2", "v2.0"]), ["v2.0", "v2"])
+        self.assertEqual(versions.num_key("1.0"), versions.num_key("1.0.0"))
+        self.assertEqual(versions.num_key("1.0"), versions.num_key("v1"))
+
+    def test_trailing_zero_trim_still_ranks_longer_higher(self):
+        self.assertEqual(self._order(["1", "1.0.1"]), ["1.0.1", "1"])
+
+    def test_one_unrankable_version_falls_back_to_list_order(self):
+        self.assertEqual(self._order(["v1", "final", "v0"]), ["v0", "final", "v1"])
+
+    def test_dates_are_rankable(self):
+        self.assertEqual(self._order(["2026-10-09", "2026-10-10", "2026-09-30"]), ["2026-10-10", "2026-10-09", "2026-09-30"])
+
+    def test_annotate_fields_and_hist_count(self):
+        a, b, c = {"id": "a", "family": "K", "version": "v1"}, {"id": "b", "family": "K", "version": "v2"}, {"id": "c", "version": "v9"}
+        self.assertEqual(versions.annotate([a, b, c]), 1)
+        self.assertEqual((b["vrank"], a["vrank"], a["vcount"], a["vfamily"]), (0, 1, 2, "K"))
+        self.assertEqual(c["vversion"], "v9")
+        self.assertNotIn("vrank", c)
+
+    def test_single_member_family_is_not_a_group(self):
+        s = {"id": "s", "family": "Solo", "version": "v1"}
+        versions.annotate([s])
+        self.assertNotIn("vrank", s)
+        self.assertNotIn("vfamily", s)
+        self.assertEqual(s["vversion"], "v1")
+
+    def test_hand_written_derived_keys_are_discarded(self):
+        x = {"id": "x", "family": "K", "version": "v1", "vrank": 5, "vfamily": "hack", "vcount": 99}
+        y = {"id": "y", "family": "K", "version": "v2"}
+        versions.annotate([x, y])
+        self.assertEqual((x["vrank"], x["vfamily"], x["vcount"]), (1, "K", 2))
+        z = {"id": "z", "vrank": 3, "vversion": "fake"}
+        versions.annotate([z])
+        self.assertNotIn("vrank", z)
+        self.assertNotIn("vversion", z)
+
+    def test_scope_separates_same_family_across_kinds(self):
+        t1, t2 = {"id": "t1", "kind": "train", "family": "M", "version": "v1"}, {"id": "t2", "kind": "eval", "family": "M", "version": "v2"}
+        versions.annotate([t1, t2], scope=lambda x: x["kind"])
+        self.assertNotIn("vrank", t1)
+        self.assertNotIn("vrank", t2)
+
+    def test_items_with_error_are_skipped(self):
+        e = {"id": "e", "error": "boom", "family": "K", "version": "v9"}
+        versions.annotate([e, {"id": "a", "family": "K", "version": "v1"}, {"id": "b", "family": "K", "version": "v2"}])
+        self.assertNotIn("vrank", e)
+
+    def test_fallbacks_meta_and_gallery(self):
+        self.assertEqual(versions.ver_of({"meta": {"version": "v3"}}), "v3")
+        self.assertEqual(versions.ver_of({"version": "v4", "meta": {"version": "v3"}}), "v4")
+        self.assertEqual(versions.ver_of({"gallery": {"version": "v2.0"}}), "v2.0")
+        self.assertEqual(versions.fam_of({"gallery": {"group": "KS", "version": "v2.0"}}), "KS")
+        self.assertEqual(versions.fam_of({"gallery": {"group": "KS"}}), "")               # 只有 group 没有 version：不当 family
+        self.assertEqual(versions.fam_of({"family": "X", "gallery": {"group": "KS", "version": "v1"}}), "X")
+        self.assertEqual(versions.ver_of({"meta": {"version": 2}}), "2")
+        for junk in (True, "", "  "):
+            self.assertEqual(versions.ver_of({"version": junk}), "")
+
+    def test_check_fv(self):
+        for bad in ({"version": 2.0}, {"family": "  "}, {"family": "x" * 41}, {"version": "v" * 21}, {"family": ["K"]}):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                versions.check_fv(bad, "x")
+        versions.check_fv({"family": "x" * 40, "version": "v" * 20}, "x")
+        versions.check_fv({}, "x")
+
+
+class VersionWriteAndLintTests(_StateCase):
+    """各类定义 / 任务 / 资源项都能带 family + version；写入校验类型，体检抓容易写错的几种情况。"""
 
     def _ds(self, *nodes):
         edges = [{"from": nodes[0]["id"], "to": nodes[1]["id"]}] if len(nodes) > 1 else []
@@ -109,42 +194,78 @@ class DatasetVersionTests(_StateCase):
     def _vwarns(self):
         return [m for lv, m in sbstore.lint() if lv == "warn" and ("family" in m or "version" in m)]
 
-    def test_normal_versions_have_no_warning(self):
+    # ── 数据节点 ──
+    def test_normal_dataset_versions_have_no_warning(self):
         self._ds({"id": "a", "family": "K", "version": "v1.0"}, {"id": "b", "family": "K", "version": "v2.0"})
         self.assertEqual(self._vwarns(), [])
 
-    def test_version_must_be_a_string(self):
+    def test_dataset_node_version_must_be_string(self):
         with self.assertRaises(ValueError):
             self._define("datasets", "g", graph([data_node("a", family="K", version=2.0)]))
 
-    def test_family_must_be_a_nonempty_short_string(self):
+    def test_dataset_node_family_rules(self):
         for bad in ("", "   ", "x" * 41, ["K"], 5):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 self._define("datasets", "g", graph([data_node("a", family=bad, version="v1")]))
 
-    def test_version_length_limit(self):
-        self._define("datasets", "g", graph([data_node("a", family="K", version="v" * 20)]))
-        with self.assertRaises(ValueError):
-            self._define("datasets", "g2", graph([data_node("a", family="K", version="v" * 21)]))
+    def test_hand_written_derived_keys_are_dropped_on_define(self):
+        self._define("datasets", "g", graph([data_node("a", vrank=9, vfamily="x")]))
+        n = sbstore.read_json(sbstore.item_path("datasets", "g"))["nodes"][0]
+        self.assertNotIn("vrank", n)
+        self.assertNotIn("vfamily", n)
 
-    def test_pipeline_nodes_are_not_subject_to_the_family_rule(self):
+    def test_pipeline_node_family_is_not_validated(self):
         self._define("pipelines", "p", graph([{"id": "a", "name": "a", "family": 123}], coll="pipelines"))
 
-    def test_family_without_version_is_warned_once(self):
+    # ── 顶层定义：Pipeline / 数据图 / 展示模块 / 校验集 ──
+    def test_top_level_family_version_on_every_definition_kind(self):
+        self._define("pipelines", "p1", {**graph([{"id": "a", "name": "a"}], coll="pipelines"), "family": "F", "version": "v1"})
+        self._define("datasets", "d1", {**graph([data_node("a")]), "family": "F", "version": "v1"})
+        self._define("modules", "m1", {"title": "t", "blocks": [], "family": "F", "version": "v1"})
+        for coll, obj in (("pipelines", graph([{"id": "a", "name": "a"}], coll="pipelines")), ("datasets", graph([data_node("a")])),
+                          ("modules", {"title": "t", "blocks": []})):
+            with self.assertRaises(ValueError, msg=coll):
+                self._define(coll, "bad", {**obj, "version": 2})
+
+    def test_review_top_level_version_validated(self):
+        base = {"source": "x.jsonl", "fields": [{"label": "q", "key": "q"}], "family": "F"}
+        os.makedirs(os.path.join(self.dir, "assets"), exist_ok=True)
+        with open(os.path.join(self.dir, "assets", "x.jsonl"), "w") as f:
+            f.write("{}\n")
+        self._define("reviews", "r1", {**base, "version": "v1"})
+        with self.assertRaises(ValueError):
+            self._define("reviews", "r2", {**base, "version": 1})
+
+    # ── 任务 / 资源项 ──
+    def test_task_family_version(self):
+        sbstore.update_task("t1", {"family": "F", "version": "v1"})
+        self.assertEqual(sbstore.read_json(sbstore.item_path("tasks", "t1"))["version"], "v1")
+        for bad in ({"version": 2.0}, {"family": ""}, {"version": "v" * 21}):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                sbstore.update_task("t2", bad)
+
+    def test_resource_item_family_version(self):
+        item = {"id": "k", "kind": "apikey", "family": "key", "version": "v2", "desc": "d", "owner": "o", "secret_ref": {"env": "X_KEY"}}
+        self._define("resources", "p", {"title": "t", "items": [item]})
+        with self.assertRaises(ValueError):
+            self._define("resources", "q", {"title": "t", "items": [{**item, "version": 2}]})
+
+    # ── 体检 ──
+    def test_family_without_version_warns_once(self):
         self._ds({"id": "a", "family": "K"}, {"id": "b", "family": "K", "version": "v2"})
         w = self._vwarns()
         self.assertEqual(len(w), 1, w)
         self.assertIn("没有 version", w[0])
 
-    def test_single_node_family_is_warned(self):
+    def test_single_member_family_warns(self):
         self._ds({"id": "a", "family": "K", "version": "v1"}, {"id": "b"})
-        self.assertTrue(any("只有 1 个节点" in m for m in self._vwarns()))
+        self.assertTrue(any("只有 1 个" in m for m in self._vwarns()))
 
-    def test_duplicate_version_is_warned(self):
+    def test_duplicate_version_warns(self):
         self._ds({"id": "a", "family": "K", "version": "v1.0"}, {"id": "b", "family": "K", "version": "v1.0"})
         self.assertTrue(any("都是「v1.0」" in m for m in self._vwarns()))
 
-    def test_unrankable_version_is_warned_with_the_fallback_rule(self):
+    def test_unrankable_version_warns_with_fallback_rule(self):
         self._ds({"id": "a", "family": "K", "version": "v1"}, {"id": "b", "family": "K", "version": "final"})
         w = self._vwarns()
         self.assertEqual(len(w), 1, w)
@@ -156,6 +277,18 @@ class DatasetVersionTests(_StateCase):
             data_node("c", brief="b", family="B", version="1.0"), data_node("d", brief="b", family="B", version="2.0")],
             edges=[{"from": "a", "to": "b"}, {"from": "c", "to": "d"}]))
         self.assertEqual(self._vwarns(), [])
+
+    def test_lint_covers_pipelines_modules_tasks_and_resources_too(self):
+        self._define("pipelines", "p1", {**graph([{"id": "a", "name": "a"}], coll="pipelines"), "family": "F"})   # 缺 version + 单成员
+        self._define("modules", "m1", {"title": "t", "blocks": [], "family": "F", "version": "v1"})
+        self._define("modules", "m2", {"title": "t", "blocks": [], "family": "F", "version": "v1"})             # 版本号重复
+        sbstore.update_task("t1", {"kind": "train", "family": "F", "version": "v1"})
+        sbstore.update_task("t2", {"kind": "eval", "family": "F", "version": "v2"})                             # 不同 kind，不归到一起 → 各是单成员
+        w = "\n".join(self._vwarns())
+        self.assertIn("pipelines", w)
+        self.assertIn("都是「v1」", w)
+        self.assertIn("tasks(train)", w)
+        self.assertIn("tasks(eval)", w)
 
 
 class LayoutTests(unittest.TestCase):

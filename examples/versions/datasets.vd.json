@@ -1,0 +1,121 @@
+{
+ "_example": "versions",
+ "title": "示例：数据的多个版本",
+ "description": "【范例】同一份「清洗后数据」迭代了三版：v1.9、v1.10、v2.0。注意 v1.10 比 v1.9 新（按数字比，不是按字母比）。",
+ "nodes": [
+  {
+   "id": "raw",
+   "name": "原始语料",
+   "kind": "raw",
+   "brief": "采集得到的原始语料，只读",
+   "desc": "采集得到的原始样本。",
+   "source": "内部导出",
+   "purpose": "全部下游的起点",
+   "processing": "未处理",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/versions/raw.jsonl"
+    }
+   ],
+   "meta": {
+    "count": 120000,
+    "format": "jsonl"
+   }
+  },
+  {
+   "id": "clean_v2",
+   "name": "清洗后数据",
+   "family": "clean",
+   "version": "v2.0",
+   "kind": "processed",
+   "status": "ready",
+   "brief": "规则 v2 的清洗结果，当前使用",
+   "desc": "去重与过滤后的训练候选集。",
+   "source": "由原始语料清洗得到",
+   "purpose": "标注与训练的输入",
+   "processing": "去重 + 过滤",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/versions/clean.v2.0.jsonl"
+    }
+   ],
+   "meta": {
+    "count": 69999,
+    "format": "jsonl"
+   }
+  },
+  {
+   "id": "clean_v110",
+   "name": "清洗后数据",
+   "family": "clean",
+   "version": "v1.10",
+   "kind": "processed",
+   "status": "stale",
+   "brief": "规则 v1.10，已被 v2.0 取代",
+   "desc": "去重与过滤后的训练候选集。",
+   "source": "由原始语料清洗得到",
+   "purpose": "标注与训练的输入",
+   "processing": "去重 + 过滤",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/versions/clean.v1.10.jsonl"
+    }
+   ],
+   "meta": {
+    "count": 74000,
+    "format": "jsonl"
+   }
+  },
+  {
+   "id": "clean_v19",
+   "name": "清洗后数据",
+   "family": "clean",
+   "version": "v1.9",
+   "kind": "processed",
+   "status": "stale",
+   "brief": "规则 v1.9，已被取代",
+   "desc": "去重与过滤后的训练候选集。",
+   "source": "由原始语料清洗得到",
+   "purpose": "标注与训练的输入",
+   "processing": "去重 + 过滤",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/versions/clean.v1.9.jsonl"
+    }
+   ],
+   "meta": {
+    "count": 78000,
+    "format": "jsonl"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "raw",
+   "to": "clean_v2",
+   "label": "清洗（规则 v2）"
+  },
+  {
+   "from": "raw",
+   "to": "clean_v110",
+   "label": "清洗（规则 v1.10）"
+  },
+  {
+   "from": "raw",
+   "to": "clean_v19",
+   "label": "清洗（规则 v1.9）"
+  }
+ ]
+}

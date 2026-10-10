@@ -1,6 +1,6 @@
 "use strict";
 /* 视图：把服务端状态渲染成离线 DOM（由 util.patch 增量合并进页面）。所有文本经 textContent 写入。 */
-import { h, s, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, assetUrl, foldBtn, foldBody, isFolded,
+import { h, s, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, assetUrl, foldBtn, foldBody, isFolded, groupByFamily, histKey, verLabel, isHist,
          TASK_ST, NODE_ST, ITEM_ST, TASK_KIND, PIPE_KIND, DATA_KIND, LOC_ROLE, REPLICA, META_LABEL, META_HIDE } from "./util.js";
 import { S, resolveRef, findGraph } from "./store.js";
 import { drawGraph, orderedNodes, ancestors, nodeSize } from "./graph.js";
@@ -253,14 +253,14 @@ function processingLines(p) {
 
 /* 同一份数据的所有版本（最新在前），当前这一个不可点；只有一个版本时不显示 */
 function versionsField(g, n) {
-  if (typeof n.family !== "string" || !n.family) return null;
-  const sibs = sortVersions(g.nodes.filter((x) => x.family === n.family));
+  if (!n.vfamily) return null;
+  const sibs = g.nodes.filter((x) => x.vfamily === n.vfamily).sort((a, b) => (a.vrank || 0) - (b.vrank || 0));
   if (sibs.length < 2) return null;
-  return field("所有版本", h("div", { class: "vlist" }, sibs.map((x, i) => [
+  return field("所有版本", h("div", { class: "vlist" }, sibs.map((x) => [
     x.id === n.id
-      ? h("span", { class: "vcur", "data-key": "v:" + x.id }, `${versionOf(x) || x.name || x.id}（当前）`)
-      : h("a", { class: "xlink", href: hrefOf("datasets", `${g.id}/${x.id}`), "data-key": "v:" + x.id }, versionOf(x) || x.name || x.id),
-    i === 0 ? h("span", { class: "tag vlatest", "data-key": "vl" }, "最新") : null])));
+      ? h("span", { class: "vcur", "data-key": "v:" + x.id }, `${verLabel(x) || x.name || x.id}（当前）`)
+      : h("a", { class: "xlink", href: hrefOf("datasets", `${g.id}/${x.id}`), "data-key": "v:" + x.id }, verLabel(x) || x.name || x.id),
+    x.vrank === 0 ? h("span", { class: "tag vlatest", "data-key": "vl" }, "最新") : null])));
 }
 
 export function dataNodeDetail(g, n, nav) {
@@ -294,7 +294,7 @@ export function dataNodeDetail(g, n, nav) {
   const rows = Object.entries(m).filter(([k, v]) => !META_HIDE.has(k) && v != null && v !== "");
   const dk = `dn:${g.id}/${n.id}`;
   return h("div", { class: (nav ? "panel flat" : "panel") + (isFolded(dk) ? " folded" : ""), "data-key": "detail" }, nav ? null : h("h4", {}, "数据详情"),
-    h("div", {}, foldBtn(dk), h("span", { class: "ttl" }, n.name || n.id), versionOf(n) ? tag(versionOf(n), "ver") : null, badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
+    h("div", {}, foldBtn(dk), h("span", { class: "ttl" }, n.name || n.id), verLabel(n) ? tag(verLabel(n), "ver") : null, badge(n.status, NODE_ST), n.kind ? tag(DATA_KIND[n.kind] || n.kind) : null,
       n.replica ? h("span", { class: `badge rep-${n.replica}`, style: { marginLeft: "6px" } }, REPLICA[n.replica]) : null,
       nav ? null : h("a", { class: "xlink open", href: hrefOf("datasets", `${g.id}/${n.id}`) }, "打开数据子页面 →")),
     n.brief ? h("div", { class: "kv brief", "data-key": "brief" }, n.brief) : null,         // 收起后只剩这一句话：它就是摘要
@@ -336,55 +336,25 @@ export function pipelineCard(g) {
 }
 
 /* 一行数据资产（清单视图和分组模块共用） */
-/* ── 数据的多个版本：同一个 family 的节点在清单里收纳成「最新版 + 可展开的历史版本」 ─────────────
-   版本号比较：取字符串里所有数字段逐段比（"v1.10" > "v1.9" > "v1.0"）；任何一个没有数字，就退回「列表里靠后的算新」。 */
-const verNums = (v) => (String(v ?? "").match(/\d+/g) || []).map(Number);
-export function versionOf(n) { return n.version != null && n.version !== "" ? String(n.version) : (n.meta && n.meta.version != null ? String(n.meta.version) : ""); }
-export function sortVersions(nodes) {
-  const keys = nodes.map((n) => verNums(versionOf(n)));
-  const comparable = keys.every((k) => k.length > 0);
-  const idx = new Map(nodes.map((n, i) => [n, i]));
-  const cmp = (a, b) => {
-    if (comparable) {
-      const x = keys[idx.get(a)], y = keys[idx.get(b)];
-      for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; }
-    }
-    return idx.get(a) - idx.get(b);                    // 相等或不可比：列表里靠后的算新
-  };
-  return [...nodes].sort(cmp).reverse();                // 最新在前
-}
-/* 把一串节点 id 按 family 折成「条目」：单个节点，或一个版本组 { family, latest, history }。位置取该组第一个成员出现的地方 */
-export function groupByFamily(nodes) {
-  const fam = new Map();
-  for (const n of nodes) if (typeof n.family === "string" && n.family) (fam.get(n.family) || fam.set(n.family, []).get(n.family)).push(n);
-  const seen = new Set(), out = [];
-  for (const n of nodes) {
-    const f = typeof n.family === "string" && n.family ? n.family : null;
-    if (!f || fam.get(f).length < 2) { out.push({ node: n }); continue; }
-    if (seen.has(f)) continue;
-    seen.add(f);
-    const [latest, ...history] = sortVersions(fam.get(f));
-    out.push({ family: f, latest, history });
-  }
-  return out;
-}
-const histKey = (g, family) => `dv:${g.id}/${family}`;
-/* 清单里的行：版本组 = 最新版一行 + 「历史版本 N 个」收纳行 + （展开时）历史行。选中的节点在历史里时自动展开，免得点了却看不到 */
+/* ── 数据清单：同一份数据的多个版本收纳成「最新版 + 可展开的历史版本」（版本怎么排由服务端算，见 util.js） ──
+   选中的节点在历史里时自动展开，免得点了却看不到 */
 function assetRows(g, nodes, sel, key, maxSz) {
   const cols = ASSET_COLS.length;
   return groupByFamily(nodes).flatMap((it) => {
     if (it.node) return [assetRow(g, it.node, sel, key, maxSz)];
-    const hk = histKey(g, it.family), forced = it.history.some((x) => x.id === sel);
+    const hk = histKey("ds:" + g.id, it.family), forced = it.history.some((x) => x.id === sel);
     const closed = isFolded(hk, true) && !forced;
     const tog = h("tr", { class: "vhist", "data-key": "vh:" + it.family },
-      h("td", { colspan: cols }, foldBtn(hk, true), h("span", { class: "vlabel" }, ` 历史版本 ${it.history.length} 个`),
-        h("span", { class: "id" }, "：" + it.history.map((x) => versionOf(x) || x.name || x.id).join("、"))));
+      h("td", { colspan: cols }, foldBtn(hk, true, forced), h("span", { class: "vlabel" }, ` 历史版本 ${it.history.length} 个`),
+        h("span", { class: "id" }, "：" + it.history.map(histText).join("、"))));
     return [assetRow(g, it.latest, sel, key, maxSz, { latest: true }), tog,
       ...(closed ? [] : it.history.map((x) => assetRow(g, x, sel, key, maxSz, { old: true })))];
   });
 }
+/* 收纳条里每个历史版本的简写：版本号，状态不是「就绪」时带上状态（如 v1.0（已过期）） */
+const histText = (x) => (verLabel(x) || x.name || x.id) + (x.status && x.status !== "ready" ? `（${NODE_ST[x.status] || x.status}）` : "");
 
-/* 「N 份」：同一个 family 的多个版本只算一份，另注明含多少个历史版本 */
+/* 「N 份」：同一份数据的多个版本只算一份，另注明含多少个历史版本 */
 function countText(nodes) {
   const items = groupByFamily(nodes), hist = items.reduce((a, x) => a + (x.history ? x.history.length : 0), 0);
   return `${items.length} 份` + (hist ? `（含 ${hist} 个历史版本）` : "");
@@ -398,7 +368,7 @@ function assetRow(g, n, sel, key, maxSz, o = {}) {
     h("td", {}, (n.locations || []).length ? `${n.locations.length} 个` : "未记录", n.replica ? [" ", h("span", { class: `badge rep-${n.replica}` }, REPLICA[n.replica])] : null),
     h("td", { class: "num" }, sz != null ? [fmtBytes(sz), " ", h("span", { class: "sizebar", style: { width: Math.max(2, 60 * sz / maxSz) + "px" } })] : "-"),
     h("td", { class: "num" }, m.count != null ? `${fmtNum(m.count)} ${m.count_unit || "条"}` : "-"),
-    h("td", {}, versionOf(n) || "-"), h("td", {}, badge(n.status, NODE_ST)));
+    h("td", {}, verLabel(n) || "-"), h("td", {}, badge(n.status, NODE_ST)));
 }
 
 const ASSET_COLS = ["名称（含一句话说明）", "类型", "存放地址", "大小", "条数", "版本", "状态"];
@@ -440,7 +410,7 @@ export function datasetCard(g) {
     byStore.set(k, (byStore.get(k) || 0) + x.sz);
   }
   const stores = [...byStore.entries()].sort((a, b) => b[1] - a[1]);
-  const issues = g.nodes.filter((n) => ["missing", "failed", "stale"].includes(n.status) || n.replica === "mismatch" || n.replica === "missing_copy");
+  const issues = g.nodes.filter((n) => !isHist(n) && (["missing", "failed", "stale"].includes(n.status) || n.replica === "mismatch" || n.replica === "missing_copy"));   // 被新版本取代的历史版本不算异常
   const noLoc = g.nodes.filter((n) => !(n.locations || []).length).length;
   const rows = assetRows(g, order.map((i) => g.nodes[i]), sel, key, maxSz);
   const toggle = h("a", { class: "xlink", "data-key": "view-toggle", "data-act": "dsview", "data-a1": key,

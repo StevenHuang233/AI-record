@@ -1,0 +1,38 @@
+{
+ "_example": "versions",
+ "title": "示例：数据处理流程",
+ "family": "flow",
+ "version": "v2.0",
+ "description": "【范例】流程改过一版：v2.0 在「清洗」之后新增了「质检」。旧版 v1.0 还留着，对照旧实验时要看。内容是虚构的，请勿照抄。",
+ "nodes": [
+  {
+   "id": "collect",
+   "name": "采集",
+   "role": "收集原始样本",
+   "desc": "从上游导出原始样本，只读保存。"
+  },
+  {
+   "id": "clean",
+   "name": "清洗",
+   "role": "去重并过滤低质量样本",
+   "desc": "精确去重 + 近似去重，过滤过短样本。"
+  },
+  {
+   "id": "qc",
+   "name": "质检",
+   "role": "抽样检查清洗效果",
+   "desc": "v2.0 新增：随机抽样复核，不合格率超阈值就拦住。",
+   "kind": "gate"
+  }
+ ],
+ "edges": [
+  {
+   "from": "collect",
+   "to": "clean"
+  },
+  {
+   "from": "clean",
+   "to": "qc"
+  }
+ ]
+}

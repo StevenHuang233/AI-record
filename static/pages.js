@@ -5,7 +5,7 @@
    #/pipelines                 Pipeline 列表          #/pipelines/<图>       结构图详情     #/pipelines/<图>/<步骤>  步骤子页面
    #/datasets                  数据图列表             #/datasets/<图>        数据图详情     #/datasets/<图>/<资产>   数据资产子页面
    #/modules                   展示模块列表           #/modules/<id>         模块详情 */
-import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND, foldBtn, foldBody, isFolded } from "./util.js";
+import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND, foldBtn, foldBody, isFolded, isHist, versionedCards, verTags } from "./util.js";
 import { S, findGraph } from "./store.js";
 import { orderedNodes, nodeSize } from "./graph.js";
 import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
@@ -75,7 +75,7 @@ function notFound(r, what) {
 function pageTitle(text, small) { return h("h2", { class: "page-title" }, text, small ? h("small", {}, small) : null); }
 
 /* ── 卡片摘要（列表页/首页用，整张卡可点击）──────────────────────────────── */
-function taskMini(t) {
+function taskMini(t, o = {}) {
   const kind = t.kind || "job";
   const facts = [];
   if (t.model && t.model.name) facts.push(h("span", { "data-key": "f-model" }, "模型 ", h("b", {}, clip(t.model.name, 28))));
@@ -84,7 +84,7 @@ function taskMini(t) {
   facts.push(h("span", { "data-key": "f-el" }, "已用 ", h("b", {}, fmtDur(t.elapsed))));
   if (t.status === "running" && t.eta != null) facts.push(h("span", { "data-key": "f-eta" }, "剩余 ", h("b", {}, fmtDur(t.eta))));
   return h("a", { class: `card mini task st-${t.status}`, href: hrefOf("task", t.id), "data-key": "tm:" + t.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, tag(TASK_KIND[kind] || kind, `kind-${kind}`), h("span", { class: "name", title: t.name || t.id }, t.name || t.id),
+    h("div", { class: "task-head" }, tag(TASK_KIND[kind] || kind, `kind-${kind}`), h("span", { class: "name", title: t.name || t.id }, t.name || t.id), verTags(t, o),
       t.stale ? h("span", { class: "badge stale" }, "疑似停滞") : null, badge(t.status, TASK_ST)),
     h("div", { class: "pct-row" }, bar(t.progress, t.status, { stale: t.stale }), h("span", { class: "pct" }, fmtPct(t.progress))),
     h("div", { class: "kv" }, facts),
@@ -100,11 +100,11 @@ function graphProgress(g) {
   return { prog, st, done: g.nodes.filter((x) => ["done", "skipped"].includes(x.status)).length };
 }
 
-function pipelineMini(g) {
+function pipelineMini(g, o = {}) {
   if (g.error) return h("div", { class: "card err", "data-key": "pm:" + g.id }, `${g.id}: ${g.error}`);
   const { prog, st, done } = graphProgress(g);
   return h("a", { class: "card mini", href: hrefOf("pipelines", g.id), "data-key": "pm:" + g.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), exTag(g), badge(st, NODE_ST)),
+    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), exTag(g), verTags(g, o), badge(st, NODE_ST)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(g.description || "（未填写说明）", 150)),
     nodeStrip(g),
     h("div", { class: "pct-row" }, bar(prog, st, { sm: true }), h("span", { class: "pct" }, fmtPct(prog))),
@@ -112,42 +112,48 @@ function pipelineMini(g) {
 }
 
 function dsIssues(g) {
-  return g.nodes.filter((n) => ["missing", "failed", "stale"].includes(n.status) || n.replica === "mismatch" || n.replica === "missing_copy").length;
+  return g.nodes.filter((n) => !isHist(n) && (["missing", "failed", "stale"].includes(n.status) || n.replica === "mismatch" || n.replica === "missing_copy")).length;
 }
 
-function datasetMini(g) {
+function datasetMini(g, o = {}) {
   if (g.error) return h("div", { class: "card err", "data-key": "dm:" + g.id }, `${g.id}: ${g.error}`);
   const total = g.nodes.reduce((a, n) => a + (nodeSize(n) || 0), 0), issues = dsIssues(g);
   const nLoc = g.nodes.reduce((a, n) => a + (n.locations || []).length, 0);
   return h("a", { class: "card mini", href: hrefOf("datasets", g.id), "data-key": "dm:" + g.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), exTag(g), issues ? h("span", { class: "badge st-failed" }, `${issues} 项异常`) : badge("ready", NODE_ST)),
+    h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), exTag(g), verTags(g, o), issues ? h("span", { class: "badge st-failed" }, `${issues} 项异常`) : badge("ready", NODE_ST)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(g.description || "（未填写说明）", 150)),
     h("div", { class: "tags" }, g.nodes.slice(0, 8).map((n) => tag(n.name || n.id))),
     h("div", { class: "kv" }, h("span", {}, h("b", {}, `${g.nodes.length} 个数据资产`)), h("span", {}, "存放地址 ", h("b", {}, String(nLoc))), total ? h("span", {}, "已知总量 ", h("b", {}, fmtBytes(total))) : null));
 }
 
-function moduleMini(m) {
+function moduleMini(m, o = {}) {
   if (m.error) return h("div", { class: "card err", "data-key": "mm:" + m.id }, `${m.id}: ${m.error}`);
   const types = [...new Set((m.blocks || []).map((b) => b.type))];
   return h("a", { class: "card mini", href: hrefOf("modules", m.id), "data-key": "mm:" + m.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, h("span", { class: "name" }, m.title || m.id), exTag(m)),
+    h("div", { class: "task-head" }, h("span", { class: "name" }, m.title || m.id), exTag(m), verTags(m, o)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(m.description || "（未填写说明）", 150)),
     h("div", { class: "tags" }, types.map((x) => tag(x))), h("div", { class: "kv" }, h("span", {}, h("b", {}, `${(m.blocks || []).length} 个展示块`))));
 }
 
-const tasksGrid = (ts, key) => (ts.length ? h("div", { class: "tasks", "data-key": key }, ts.map(taskMini)) : null);
+const taskHistText = (t) => (t.vversion || t.name || t.id) + `（${TASK_ST[t.status] || t.status}）`;
+/* 还在跑 / 排队 / 疑似停滞的历史版本不能被收起来看不见：force 为真时那一组自动展开 */
+const taskNeedsEyes = (t) => t.status === "running" || t.status === "queued" || t.stale;
+const tasksGrid = (ts, key, fold = true) => (ts.length ? h("div", { class: "tasks", "data-key": key },
+  fold ? versionedCards(ts, { scope: "tasks", card: taskMini, force: taskNeedsEyes, label: taskHistText }) : ts.map((t) => taskMini(t))) : null);
 const sortActive = (ts) => [...ts].sort((a, b) => ((a.status === "running" || a.status === "queued") ? 0 : 1) - ((b.status === "running" || b.status === "queued") ? 0 : 1));
 
 /* ── 首页 ─────────────────────────────────────────────────────────────────── */
 function attention(st) {
   const out = [];
   for (const t of st.tasks) {
+    if (isHist(t)) continue;                           // 被新版本取代的历史任务：失败 / 停滞都是过去的事
     if (t.status === "failed") out.push([`${TASK_KIND[t.kind || "job"]}「${t.name || t.id}」失败${t.message ? "：" + clip(t.message, 50) : ""}`, hrefOf("task", t.id), "failed"]);
     else if (t.stale) out.push([`${TASK_KIND[t.kind || "job"]}「${t.name || t.id}」疑似停滞（${fmtDur(t.idle)} 无心跳）`, hrefOf("task", t.id), "stale"]);
   }
   for (const g of st.datasets) {
     if (g.error) { out.push([`数据图 ${g.id} 解析失败`, hrefOf("datasets", g.id), "failed"]); continue; }
     for (const n of g.nodes) {
+      if (isHist(n)) continue;
       const href = hrefOf("datasets", `${g.id}/${n.id}`), nm = n.name || n.id;
       if (n.status === "missing") out.push([`数据「${nm}」路径缺失`, href, "failed"]);
       else if (n.replica === "mismatch") out.push([`数据「${nm}」主地址与备份不一致`, href, "failed"]);
@@ -194,7 +200,7 @@ function homePage(r) {
       tile("review", "☑", "成果校验", (st.reviews || []).length, reviewTileSub(st), "#/review"),
       tile("resources", "⛭", "资源管理", resourceCount(st), resourceTileSub(st), "#/resources")),
     h("section", { "data-key": "sec:running" }, h("h2", {}, "正在运行", h("small", {}, `${running.length} 个任务`)),
-      running.length ? tasksGrid(running, "run-grid") : empty("当前没有运行中的任务。")),
+      running.length ? tasksGrid(running, "run-grid", false) : empty("当前没有运行中的任务。")),
     h("div", { class: "two" },
       h("section", { "data-key": "sec:att" }, h("h2", {}, "需要关注", h("small", {}, `${att.length} 项`)),
         h("div", { class: "card" }, att.length ? h("ul", { class: "alist" }, att.slice(0, 12).map(([txt, href, lv], i) => h("li", { "data-key": "a" + i, class: `st-${lv === "failed" ? "failed" : "stale"}` }, h("i"), h("a", { href }, txt))))
@@ -220,7 +226,7 @@ function listPage(r) {
   const hint = { pipelines: "点开查看结构图，点击节点进入各步骤子页面", datasets: "点开查看数据血缘；每份数据记录地址（含备份）、来源、用处、处理情况", modules: "数据集展示、效果展示等自定义内容" }[r.kind];
   const how = { pipelines: "python3 sb.py define pipelines <id> file.json", datasets: "python3 sb.py define datasets <id> file.json", modules: "python3 sb.py define modules <id> file.json" }[r.kind];
   return pageShell(r, [["首页", "#/"], [label, null]], pageTitle(label, `${items.length} 个 · ${hint}`),
-    items.length ? h("div", { class: "tasks", "data-key": "grid" }, items.map(mini)) : h("div", { class: "empty" }, `暂无${label}。用 sb.define 写入：`, " ", h("code", {}, how)));
+    items.length ? h("div", { class: "tasks", "data-key": "grid" }, versionedCards(items, { scope: r.kind, card: mini })) : h("div", { class: "empty" }, `暂无${label}。用 sb.define 写入：`, " ", h("code", {}, how)));
 }
 
 /* ── 详情页 ───────────────────────────────────────────────────────────────── */
@@ -280,12 +286,12 @@ function nodePage(r) {
 }
 
 /* ── 成果校验 ─────────────────────────────────────────────────────────────── */
-function reviewMini(d) {
+function reviewMini(d, o = {}) {
   if (d.error) return h("div", { class: "card err", "data-key": "rm:" + d.id }, `${d.id}: ${d.error}`);
   const m = d.marked || { pass: 0, weak: 0, fail: 0, doubt: 0 }, done = m.pass + (m.weak || 0) + m.fail + m.doubt, total = d.rows || 0;
   const sc = d.scan && !d.scan.pending && !d.scan.error ? d.scan : null;
   return h("a", { class: "card mini", href: hrefOf("review", d.id), "data-key": "rm:" + d.id, "data-fade": 1 },
-    h("div", { class: "task-head" }, tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), h("span", { class: "name" }, d.title || d.id), exTag(d),
+    h("div", { class: "task-head" }, tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), h("span", { class: "name" }, d.title || d.id), exTag(d), verTags(d, o),
       d.source_error ? h("span", { class: "badge st-failed" }, d.source_error) : null),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(d.description || "（未填写说明）", 150)),
     h("div", { class: "pct-row" }, bar(total ? done / total : null, "running", { sm: true }), h("span", { class: "pct" }, total ? fmtPct(done / total) : "--")),
@@ -299,7 +305,7 @@ function reviewsPage(r) {
   const items = S.state.reviews || [];
   return pageShell(r, [["首页", "#/"], [LISTS.review, null]],
     pageTitle(LISTS.review, `${items.length} 个 · 看模型生成的结果、清洗出来的数据：规则自动检查 + 人工逐条标记`),
-    items.length ? h("div", { class: "tasks", "data-key": "grid" }, items.map(reviewMini))
+    items.length ? h("div", { class: "tasks", "data-key": "grid" }, versionedCards(items, { scope: "reviews", card: reviewMini }))
       : h("div", { class: "empty" }, "暂无校验集。用 sb.define 写入：", " ", h("code", {}, "python3 sb.py define reviews <id> file.json")));
 }
 

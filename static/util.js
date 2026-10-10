@@ -185,10 +185,53 @@ export function toggleFold(key) {
   if (FOLD.has(key)) FOLD.delete(key); else FOLD.add(key);
   try { localStorage.setItem(FOLD_KEY, JSON.stringify([...FOLD].slice(-200))); } catch (e) { /* 存不了就只在本次页面有效 */ }
 }
-export function foldBtn(key, defClosed = false) {
-  const closed = isFolded(key, defClosed);
-  return h("button", { class: "fold", "data-act": "fold", "data-a1": key, "data-key": "fold:" + key,
-                       title: closed ? "展开" : "收起", "aria-expanded": closed ? "false" : "true" }, closed ? "▸" : "▾");
+export function foldBtn(key, defClosed = false, forced = false) {
+  const closed = isFolded(key, defClosed) && !forced;
+  return h("button", { class: "fold" + (forced ? " forced" : ""), "data-act": forced ? null : "fold", "data-a1": key, "data-key": "fold:" + key,
+                       title: forced ? "有历史版本还在运行 / 需要关注，已自动展开" : closed ? "展开" : "收起", "aria-expanded": closed ? "false" : "true" }, closed ? "▸" : "▾");
 }
+/* ── 多个版本：同一个东西（数据 / Pipeline / 展示模块 / 校验集 / 任务 / 资源）的 v1.0、v2.0 … ─────────────
+   谁是最新由服务端算好（vfamily / vversion / vrank / vcount，见 versions.py），这里只负责显示：
+   最新版照常显示，历史版本收在「▸ 历史版本 N 个」后面，默认收起，点开才展开。 */
+export const verLabel = (x) => (x && x.vversion) || "";
+export const isHist = (x) => !!x && (x.vrank || 0) > 0;
+/* 把一串同类条目折成「条目」：{ node } 或 { family, latest, history }（历史按新 → 旧）。版本组位置取它第一个成员出现的地方 */
+export function groupByFamily(items) {
+  const fam = new Map();
+  for (const x of items) if (x && x.vfamily) (fam.get(x.vfamily) || fam.set(x.vfamily, []).get(x.vfamily)).push(x);
+  const seen = new Set(), out = [];
+  for (const x of items) {
+    if (!x || !x.vfamily || fam.get(x.vfamily).length < 2) { out.push({ node: x }); continue; }
+    if (seen.has(x.vfamily)) continue;
+    seen.add(x.vfamily);
+    const ms = [...fam.get(x.vfamily)].sort((a, b) => (a.vrank || 0) - (b.vrank || 0));
+    out.push({ family: x.vfamily, latest: ms[0], history: ms.slice(1) });
+  }
+  return out;
+}
+export const histKey = (scope, family) => `dv:${scope}/${family}`;
+/* 版本组的收纳条：▸ 历史版本 N 个：v1.1、v1.0 */
+export function histBar(scope, family, history, label, forced = false) {
+  const hk = histKey(scope, family);
+  return h("div", { class: "vhist-bar", "data-key": "vb:" + scope + "/" + family },
+    foldBtn(hk, true, forced), h("span", { class: "vlabel" }, ` 历史版本 ${history.length} 个`),
+    h("span", { class: "id" }, "：" + history.map(label).join("、")));
+}
+/* 卡片网格用：每个版本组占一个格子（最新版卡片 + 收纳条 + 展开后的历史卡片），单个条目原样。
+   card(x, {latest, old}) 渲染一张卡；label(x) 是收纳条里每个历史版本的简写；force(x) 为真时（如还在运行）自动展开 */
+export function versionedCards(items, { scope, card, label, force }) {
+  const lab = label || ((x) => verLabel(x) || x.name || x.title || x.id);
+  return groupByFamily(items).map((it) => {
+    if (it.node) return card(it.node, {});
+    const forced = !!(force && it.history.some(force)), closed = isFolded(histKey(scope, it.family), true) && !forced;
+    return h("div", { class: "vfam", "data-key": "vf:" + scope + "/" + it.family, "data-fade": 1 },
+      card(it.latest, { latest: true }), histBar(scope, it.family, it.history, lab, forced),
+      closed ? null : h("div", { class: "vhist-list", "data-key": "vl:" + it.family }, it.history.map((x) => card(x, { old: true }))));
+  });
+}
+/* 卡片标题旁的版本标记：版本号 +（最新版）「最新」 */
+export const verTags = (x, o = {}) => [verLabel(x) ? h("span", { class: "tag ver", "data-key": "vt" }, verLabel(x)) : null,
+  o.latest ? h("span", { class: "tag vlatest", "data-key": "vlt" }, "最新") : null];
+
 /* 收起时返回 null，展开时原样返回内容：h("div", ..., head, foldBody(key, [正文...])) */
 export const foldBody = (key, kids, defClosed = false) => (isFolded(key, defClosed) ? null : kids);

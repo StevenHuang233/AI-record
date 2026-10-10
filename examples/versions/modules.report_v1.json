@@ -1,0 +1,18 @@
+{
+ "_example": "versions",
+ "title": "示例：效果报告",
+ "family": "report",
+ "version": "v1.0",
+ "description": "【范例】效果报告 v1.0。内容是虚构的，请勿照抄。",
+ "blocks": [
+  {
+   "type": "metrics",
+   "items": [
+    {
+     "label": "准确率",
+     "value": "0.74"
+    }
+   ]
+  }
+ ]
+}

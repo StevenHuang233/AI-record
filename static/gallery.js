@@ -6,7 +6,7 @@
 
    这块有自己的 DOM 和状态，不走看板的增量 patch（播放进度、时间轴游标、输入框焦点都不能被重绘打断）：
    页面里只放一个带 data-static 的容器，patch 不会碰它里面的内容。 */
-import { h, assetUrl, fmtNum } from "./util.js";
+import { h, assetUrl, fmtNum, isFolded, toggleFold, histKey } from "./util.js";
 import { S } from "./store.js";
 
 export const ACTION = {   // 动作颜色与中文名（同旧站）
@@ -288,19 +288,34 @@ function createGallery(root) {
     sideSig = sig;
     const by = {};
     for (const d of galleryReviews()) (by[d.gallery.group || "其他"] ||= []).push(d);
+    // 批次按钮：当前选中的高亮；版本号标在名字旁
+    const batch = (d, o = {}) => {
+      const m = d.marked || {}, marked = (m.pass || 0) + (m.weak || 0) + (m.fail || 0) + (m.doubt || 0);
+      return $("button", { class: `batch ${d.id === G.id ? "on" : ""}${o.old ? " vold" : ""}`, "data-key": d.id, onclick: () => { location.hash = `#/review/${encodeURIComponent(d.id)}`; } },
+        $("div", { class: "bn" }, d.title || d.id, (d.vversion || d.gallery.version) ? $("span", { class: "ver" }, d.vversion || d.gallery.version) : null,
+          o.latest ? $("span", { class: "ver latest" }, "最新") : null,
+          $("span", { class: "vid" }, "视频"),
+          ruleFails(d.scan) ? $("span", { class: "bad" }, `${fmtNum(ruleFails(d.scan))} 条规则不通过`) : null,
+          d.scan && d.scan.too_long ? $("span", { class: "bad", title: "单行超过上限没有读取，调大 SB_REVIEW_LINE_MAX 可看全" }, `${fmtNum(d.scan.too_long)} 行超长未读`) : null),
+        $("div", { class: "bm" }, `${d.rows != null ? fmtNum(d.rows) : "—"} 条${marked ? ` · 已标 ${fmtNum(marked)}` : ""}`));
+    };
+    // 组内排序：服务端已按版本号算好 vrank（最新 0）；没成组的（缺版本号等）退回按版本号字符串，数字按数值比（v1.10 > v1.9）
+    const rankOf = (d) => (d.vrank != null ? d.vrank : 1e6);
+    const byVer = (a, b) => String(b.gallery.version || "").localeCompare(String(a.gallery.version || ""), undefined, { numeric: true });
+    const groupEls = ([name, items]) => {
+      items.sort((a, b) => rankOf(a) - rankOf(b) || byVer(a, b));
+      const hist = items.filter((d) => (d.vrank || 0) > 0), shown = items.filter((d) => !((d.vrank || 0) > 0));
+      if (!hist.length) return items.map((d) => batch(d));
+      const hk = histKey("gallery", name), forced = hist.some((d) => d.id === G.id), closed = isFolded(hk, true) && !forced;
+      const toggle = $("button", { class: "vbar", "data-key": "vb:" + name, title: forced ? "当前批次在历史版本里，已自动展开" : closed ? "展开历史版本" : "收起历史版本",
+        "aria-expanded": closed ? "false" : "true", onclick: () => { if (forced) return; toggleFold(hk); sideSig = ""; renderSide(); } },
+        closed ? "▸" : "▾", ` 历史版本 ${hist.length} 个`, $("span", { class: "id" }, "：" + hist.map((d) => d.vversion || d.gallery.version || d.title || d.id).join("、")));
+      return [...shown.map((d) => batch(d, { latest: true })), toggle, ...(closed ? [] : hist.map((d) => batch(d, { old: true })))];
+    };
     fill(els.side,
       $("div", { class: "help" }, "成果校验 · 按数据集展示", $("br"), "每条视频可播放、可标记"),
-      ...Object.entries(by).sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) =>
-        $("div", { class: "ogroup" }, $("div", { class: "ohead" }, name),
-          items.sort((a, b) => String(b.gallery.version || "").localeCompare(String(a.gallery.version || ""))).map((d) => {
-            const m = d.marked || {}, marked = (m.pass || 0) + (m.weak || 0) + (m.fail || 0) + (m.doubt || 0);
-            return $("button", { class: `batch ${d.id === G.id ? "on" : ""}`, "data-key": d.id, onclick: () => { location.hash = `#/review/${encodeURIComponent(d.id)}`; } },
-              $("div", { class: "bn" }, d.title || d.id, d.gallery.version ? $("span", { class: "ver" }, d.gallery.version) : null,
-                $("span", { class: "vid" }, "视频"),
-                ruleFails(d.scan) ? $("span", { class: "bad" }, `${fmtNum(ruleFails(d.scan))} 条规则不通过`) : null,
-                d.scan && d.scan.too_long ? $("span", { class: "bad", title: "单行超过上限没有读取，调大 SB_REVIEW_LINE_MAX 可看全" }, `${fmtNum(d.scan.too_long)} 行超长未读`) : null),
-              $("div", { class: "bm" }, `${d.rows != null ? fmtNum(d.rows) : "—"} 条${marked ? ` · 已标 ${fmtNum(marked)}` : ""}`));
-          }))));
+      ...Object.entries(by).sort(([a], [b]) => a.localeCompare(b)).map((entry) =>
+        $("div", { class: "ogroup" }, $("div", { class: "ohead" }, entry[0]), groupEls(entry))));
   }
 
   /* ── 选批次 ── */

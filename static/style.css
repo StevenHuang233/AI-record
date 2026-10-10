@@ -419,3 +419,11 @@ tr.vold { opacity: .86; }
 .tag.ver { margin-left: 6px; }
 .vlist { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
 .vlist .vcur { font-weight: 600; }
+
+/* 多个版本：卡片网格里每个版本组占一个格子 —— 最新版卡片 + 收纳条 + 展开后的历史卡片 */
+.vfam { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vhist-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 12.5px; color: var(--sub); padding: 2px 4px; }
+.vhist-bar .vlabel { color: var(--text); }
+.vhist-list { display: flex; flex-direction: column; gap: 8px; margin-left: 14px; padding-left: 10px; border-left: 2px dashed var(--line); }
+.vhist-list .card { opacity: .88; }
+.fold.forced { opacity: .55; cursor: default; }

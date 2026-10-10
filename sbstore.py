@@ -23,6 +23,8 @@ import tempfile
 import threading
 import time
 
+import versions as _ver
+
 try:
     import fcntl
 except ImportError:  # Windows
@@ -337,6 +339,9 @@ def clean_task_patch(p: dict) -> dict:
             out[k] = _str(v, k, 500)
         elif k in ("pipeline", "node"):
             out[k] = check_id(v)
+        elif k in ("family", "version"):
+            _ver.check_fv({k: v}, "任务")
+            out[k] = v.strip()
         elif k == "kind":
             if v not in TASK_KINDS:
                 raise ValueError(f"kind 必须是 {list(TASK_KINDS)}")
@@ -600,7 +605,7 @@ def _check_review(obj: dict) -> None:
         raise ValueError("summary 必须是不超过 4 个字段名的列表（卡片收起后显示的摘要）")
 
 
-_RES_COMMON = {"id", "name", "kind", "state", "owner", "desc", "note", "access", "tags", "used_by"}
+_RES_COMMON = {"id", "name", "kind", "state", "owner", "desc", "note", "access", "tags", "used_by", "family", "version"}
 _RES_BY_KIND = {
     "apikey": {"provider", "secret_ref", "quota", "rate_limit", "expires", "rotated", "rotate_days", "scopes", "endpoint"},
     "gpu": {"host", "count", "model", "mem_gb", "probe", "gpu_indices"},
@@ -672,6 +677,7 @@ def _check_resources(obj: dict) -> None:
         kind = it.get("kind")
         if kind not in RES_KINDS:
             raise ValueError(f"{w}.kind 必须是 {list(RES_KINDS)}")
+        _ver.check_fv(it, w)
         bad = [k for k in it if k not in _RES_COMMON and k not in _RES_BY_KIND[kind]]
         if bad:
             hint = "；看板不保存密钥本身，请用 secret_ref 指向它" if set(bad) & _RES_SECRETY_FIELDS else ""
@@ -781,6 +787,10 @@ def clean_definition(coll: str, obj) -> dict:
     if not isinstance(obj, dict):
         raise ValueError("定义必须是 JSON 对象")
     obj.pop("id", None)
+    if coll != "resources":
+        _ver.check_fv(obj, f"{coll} 定义")                # 资源池本身不分版本，版本写在 items 的每一项上
+    for k in _ver.DERIVED:
+        obj.pop(k, None)                                  # 派生字段由服务端算，写进定义里的一律丢弃
     if coll in GRAPH_KINDS:
         nodes = obj.get("nodes")
         if not isinstance(nodes, list) or not nodes or len(nodes) > 300:
@@ -796,9 +806,9 @@ def clean_definition(coll: str, obj) -> dict:
             if "status" in n and n["status"] not in NODE_STATUS:
                 raise ValueError(f"节点 {n['id']} 的 status 非法: {n['status']}")
             if coll == "datasets":
-                for f, mx, ex in (("family", 40, "同一份数据的所有版本写同一个值，如 \"KnowShiftQA\""), ("version", 20, "如 \"v2.0\"")):
-                    if f in n and (not isinstance(n[f], str) or not n[f].strip() or len(n[f]) > mx):
-                        raise ValueError(f"节点 {n['id']} 的 {f} 必须是 1~{mx} 字的非空字符串（{ex}）")
+                _ver.check_fv(n, f"节点 {n['id']}")
+            for k in _ver.DERIVED:
+                n.pop(k, None)
         edges = obj.get("edges", [])
         if not isinstance(edges, list) or len(edges) > 1000:
             raise ValueError("edges 必须是列表")
@@ -1268,6 +1278,32 @@ def _has_example_path(o) -> bool:
     return False
 
 
+def lint_versions(add, scope_label: str, pairs: list, what: str) -> None:
+    """版本相关的体检，对所有「同一个东西有多个版本」的地方通用。pairs = [(id, 条目)]，同一个 scope 里的才会归到一起。
+    只看显式写的 family（图库校验集靠 gallery.group 兜底的不检查：那是旧写法）。"""
+    fams: dict = {}
+    for iid, x in pairs:
+        f = x.get("family")
+        if isinstance(f, str) and f.strip():
+            fams.setdefault(f, []).append((iid, x))
+            if not _ver.ver_of(x):
+                add("warn", f"{scope_label}:{iid}: 写了 family「{f}」却没有 version（分不出新旧；版本号如 \"v2.0\"）")
+    for fam, ms in fams.items():
+        if len(ms) < 2:
+            add("warn", f"{scope_label}: family「{fam}」只有 1 个{what}——没有多个版本就不需要 family，去掉它")
+            continue
+        seen: dict = {}
+        for iid, x in ms:
+            v = _ver.ver_of(x)
+            if v and v in seen:
+                add("warn", f"{scope_label}: family「{fam}」里{what}「{seen[v]}」和「{iid}」的 version 都是「{v}」——同一个东西的版本号不能重复")
+            elif v:
+                seen[v] = iid
+        with_ver = [_ver.ver_of(x) for _, x in ms if _ver.ver_of(x)]
+        if any(not any(ch.isdigit() for ch in v) for v in with_ver):
+            add("warn", f"{scope_label}: family「{fam}」的版本号里有不含数字的（如 \"final\"）——无法比大小，会按{what}在列表里的先后判断新旧（越靠后越新）")
+
+
 def lint(ignore_example: bool = False) -> list:
     """检查定义是否完整、引用是否有效。返回 [(level, message)]，level 为 error / warn。
     ignore_example=True 时不报「残留范例内容」（用于检查 examples/ 自身）。"""
@@ -1381,26 +1417,7 @@ def lint(ignore_example: bool = False) -> list:
                         if not n.get(f):
                             add("warn", f"{nt}: 缺少 {f}（{cn}）")
             if kind == "datasets":
-                fams = {}
-                for n in g["nodes"]:
-                    if isinstance(n.get("family"), str) and n["family"].strip():
-                        fams.setdefault(n["family"], []).append(n)
-                        if not isinstance(n.get("version"), str) or not n["version"].strip():
-                            add("warn", f"{tag}:{n['id']}: 写了 family「{n['family']}」却没有 version（清单里分不出新旧；版本号如 \"v2.0\"）")
-                for fam, ns in fams.items():
-                    if len(ns) < 2:
-                        add("warn", f"{tag}: family「{fam}」只有 1 个节点——没有多个版本就不需要 family，去掉它")
-                        continue
-                    seen = {}
-                    for n in ns:
-                        v = (n.get("version") or "").strip()
-                        if v and v in seen:
-                            add("warn", f"{tag}: family「{fam}」里节点「{seen[v]}」和「{n['id']}」的 version 都是「{v}」——同一份数据的版本号不能重复")
-                        elif v:
-                            seen[v] = n["id"]
-                    with_ver = [n for n in ns if isinstance(n.get("version"), str) and n["version"].strip()]   # 缺 version 的上面已经报过，这里不重复
-                    if any(not any(ch.isdigit() for ch in n["version"]) for n in with_ver):
-                        add("warn", f"{tag}: family「{fam}」的版本号里有不含数字的（如 \"final\"）——无法比大小，会按节点在列表里的先后判断新旧（越靠后越新）")
+                lint_versions(add, tag, [(n["id"], n) for n in g["nodes"]], "节点")
     for rid, r in raw["reviews"].items():
         rt = f"reviews/{rid}"
         try:
@@ -1434,6 +1451,7 @@ def lint(ignore_example: bool = False) -> list:
             add("warn", f"{rt}: 缺少 title")
         if not g.get("description"):
             add("warn", f"{rt}: 缺少 description（这个资源池是什么、归谁管、怎么申请使用）")
+        lint_versions(add, rt, [(it["id"], it) for it in g["items"]], "资源")
         for it in g["items"]:
             it_t = f"{rt}:{it['id']}"
             if not it.get("desc"):
@@ -1469,6 +1487,13 @@ def lint(ignore_example: bool = False) -> list:
                     g2, i2 = it[f].split("/", 1)
                     if i2 not in res_ids.get(g2, set()):
                         add("warn", f"{it_t}: {f} 引用的资源不存在: {it[f]}")
+    for coll_name, cn in (("pipelines", "Pipeline"), ("datasets", "数据图"), ("modules", "展示模块"), ("reviews", "校验集")):
+        lint_versions(add, coll_name, [(i, o) for i, o in raw[coll_name].items()], cn)
+    by_kind: dict = {}
+    for tid, t in raw["tasks"].items():
+        by_kind.setdefault(t.get("kind") or "job", []).append((tid, t))
+    for k, pairs in by_kind.items():
+        lint_versions(add, f"tasks({k})", pairs, "任务")
     for gid, u in raw["usage"].items():
         for iid, e in (u.get("items") or {}).items():
             if iid not in res_ids.get(gid, set()):

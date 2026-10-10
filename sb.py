@@ -218,6 +218,8 @@ def main(argv=None) -> int:
     t.add_argument("--model", help="模型名")
     t.add_argument("--pipeline")
     t.add_argument("--node")
+    t.add_argument("--family", help="同一个任务的多个版本写同一个值（如 train-main）；页面上只显示最新版，历史版本收起")
+    t.add_argument("--version", help="版本号字符串，如 v2.0")
     t.add_argument("--stale-after", type=float, dest="stale_after", help="多少秒无心跳判为停滞")
     t.add_argument("--metric", action="append", help="k=v，可重复")
     t.add_argument("--json", help="额外字段（JSON 对象），如 datasets / hparams / scores")
@@ -284,7 +286,7 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "task":
             f = {k: getattr(a, k) for k in ("name", "kind", "status", "done", "total", "progress", "unit",
-                                              "message", "pipeline", "node", "stale_after")}
+                                              "message", "pipeline", "node", "stale_after", "family", "version")}
             if a.model:
                 f["model"] = {"name": a.model}
             if a.metric:

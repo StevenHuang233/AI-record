@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import resources
 import review
 import sbstore as store
+import versions
 
 STATIC = os.path.join(store.ROOT, "static")
 STATIC_RE = re.compile(r"^[A-Za-z0-9_.\-]+\.(js|css|html)$")
@@ -308,6 +309,7 @@ def _derive_pipeline(g: dict, tasks: list):
 
 
 def _derive_dataset(g: dict):
+    versions.annotate(g["nodes"])                      # 同一份数据的多个版本：图内按 family 归组
     for n in g["nodes"]:
         meta = n.get("meta") if isinstance(n.get("meta"), dict) else {}
         locs = n.get("locations") if isinstance(n.get("locations"), list) else []
@@ -393,6 +395,8 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
             t = copy.deepcopy(t)
             t["id"] = iid
             tasks.append(_task_view(t, now))
+    tasks.sort(key=lambda t: (t.get("started_at") or t.get("created_at") or 0))
+    versions.annotate(tasks, scope=lambda t: t.get("kind") or "job")           # 版本号相同 / 不可比时：开始得晚的算新
     tasks.sort(key=lambda t: -(t.get("started_at") or t.get("created_at") or 0))
     out = {"now": now, "title": str(board.get("title") or "状态看板")[:80],
            "subtitle": str(board.get("subtitle") or "")[:200], "writable": CONFIG["writable"], "tasks": tasks}
@@ -417,6 +421,7 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
             except Exception as e:  # noqa: BLE001  单个定义写坏不能拖垮整页
                 g = {"id": iid, "title": g.get("title") or iid, "error": f"渲染失败: {e.__class__.__name__}: {e}"}
             items.append(g)
+        versions.annotate(items)                                         # Pipeline / 数据图 / 展示模块 / 校验集：同类里按 family 归组
         out[kind] = items
     out["summary"] = {s: sum(1 for t in tasks if t["status"] == s) for s in store.TASK_STATUS}
     out["summary"]["stale"] = sum(1 for t in tasks if t["stale"])

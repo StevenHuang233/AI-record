@@ -1,0 +1,33 @@
+{
+ "_example": "versions",
+ "title": "示例：回答抽检",
+ "family": "answers",
+ "version": "v2.0",
+ "kind": "model_output",
+ "from": {
+  "task": "ver-train-v2",
+  "note": "某批抽样推理结果"
+ },
+ "description": "【范例】回答抽检 v2.0：第二批抽检。回答非空即合格。内容是虚构的，请勿照抄。",
+ "source": "ver_ans_v2.jsonl",
+ "page_size": 5,
+ "fields": [
+  {
+   "label": "问题",
+   "key": "q"
+  },
+  {
+   "label": "回答",
+   "key": "a",
+   "type": "long"
+  }
+ ],
+ "rules": [
+  {
+   "id": "has_a",
+   "field": "a",
+   "op": "nonempty",
+   "label": "回答不能为空"
+  }
+ ]
+}
