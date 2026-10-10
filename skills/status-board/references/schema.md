@@ -142,7 +142,8 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
   "kind": "model_output | cleaned_data | generic",
   "from": {"task": "任务id", "dataset": "数据图id/节点id", "model": "模型名", "note": "批次说明"},
   "source": "相对资源目录的路径.jsonl",
-  "page_size": 8,
+  "page_size": 8,   // 想放视频/图片：把文件放进资源目录，字段 type 写 video/image/audio
+                    // 注意软链指向资源目录以外会被当成越界拒绝（沙箱取真实路径），跨盘硬链也不行，得复制进来
   "fields": [
     {"label": "问题", "key": "question"},
     {"label": "回答", "key": "answer", "type": "long"},
@@ -171,6 +172,10 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 | `gt` `gte` `lt` `lte` | 数值比较（非数值视为不通过） | 数字 |
 | `json` | 字符串能解析成 JSON | 否 |
 | `asset_exists` | 字段值是资源目录内存在的文件 | 否 |
+
+**想在校验台里放视频 / 图片**：把文件放进资源目录（`state/assets/`），行里写相对路径，字段 `type` 写 `video` / `image` / `audio`，
+页面上就能直接播（图片/音视频支持 Range，可拖动）。**不能用软链指向资源目录以外的地方**——资源解析取真实路径，
+指向外部的软链一律当成越界拒绝（沙箱本来就这么设计），跨文件系统的硬链也不行，得复制一份进来。
 | `eq_field` `neq_field` | 与另一个字段相等 / 不等 | 另一个字段名 |
 | `unique` | 全文件内该字段不重复 | 否 |
 
