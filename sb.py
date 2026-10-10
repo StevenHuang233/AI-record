@@ -101,7 +101,7 @@ def milestone(title: str, note: str = "", tags=None) -> dict:
 
 
 def mark(review_id: str, line: int, verdict, note: str = "", tags=None) -> dict:
-    """给校验集的某一行打人工标记：verdict = "pass" | "fail" | "doubt" | None（清除）。line 从 1 开始。"""
+    """给校验集的某一行打人工标记：verdict = "pass" | "weak" | "fail" | "doubt" | None（清除）。line 从 1 开始。"""
     check_id(review_id)
     body = {"marks": [{"line": line, "v": verdict, "note": note, "tags": tags or []}]}
     if _remote():
@@ -258,7 +258,7 @@ def main(argv=None) -> int:
     k = sub.add_parser("mark", help="给校验集某一行打人工标记")
     k.add_argument("review_id")
     k.add_argument("line", type=int, help="第几行，从 1 开始")
-    k.add_argument("verdict", choices=["pass", "fail", "doubt", "clear"], help="clear = 清除标记")
+    k.add_argument("verdict", choices=["pass", "weak", "fail", "doubt", "clear"], help="pass 合理 / weak 偏弱 / fail 判错 / doubt 不确定 / clear 清除")
     k.add_argument("--note", default="")
     k.add_argument("--tag", action="append")
 

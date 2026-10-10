@@ -14,3 +14,9 @@ state/.tmp-*
 
 # 范例播放用的临时状态目录
 examples/.play/
+
+# 本地运行产物与令牌，不入库
+.sb_token
+server.log
+server.pid
+state/assets/

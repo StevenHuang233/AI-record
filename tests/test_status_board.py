@@ -468,7 +468,7 @@ class GalleryApiTests(_StateCase):
         self.assertEqual(marks["item-2"], {"v": "pass"})
         self.assertEqual(marks["item-3"], {"v": "fail", "note": "糊"})
         self.assertIsNone(marks["item-1"])
-        self.assertEqual(out["marked"], {"pass": 1, "fail": 1, "doubt": 0})
+        self.assertEqual(out["marked"], {"pass": 1, "weak": 0, "fail": 1, "doubt": 0})
         self.assertEqual([i["id"] for i in self.page(view="mfail")["items"]], ["item-3"])
         self.assertEqual(self.page(view="unmarked")["count"], 2)
 

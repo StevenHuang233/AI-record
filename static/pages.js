@@ -5,12 +5,12 @@
    #/pipelines                 Pipeline 列表          #/pipelines/<图>       结构图详情     #/pipelines/<图>/<步骤>  步骤子页面
    #/datasets                  数据图列表             #/datasets/<图>        数据图详情     #/datasets/<图>/<资产>   数据资产子页面
    #/modules                   展示模块列表           #/modules/<id>         模块详情 */
-import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND } from "./util.js";
+import { h, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, TASK_ST, NODE_ST, TASK_KIND, DATA_KIND, foldBtn, foldBody, isFolded } from "./util.js";
 import { S, findGraph } from "./store.js";
 import { orderedNodes, nodeSize } from "./graph.js";
 import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
 import { TL } from "./timeline.js";
-import { reviewWorkbench, enter as reviewEnter, leave as reviewLeave } from "./review.js";
+import { reviewWorkbench, descBlock, enter as reviewEnter, leave as reviewLeave } from "./review.js";
 import { mountGallery, galleryLeave } from "./gallery.js";
 import { poolMini, poolPage, itemPage, resHref, resourceAttention, resourceTileSub, resourceCount, RES_KIND } from "./resources.js";
 
@@ -160,7 +160,7 @@ function attention(st) {
     if (d.error) { out.push([`校验集 ${d.id} 解析失败`, hrefOf("review", d.id), "failed"]); continue; }
     if (d.source_error) out.push([`校验集「${d.title || d.id}」${d.source_error}`, hrefOf("review", d.id), "failed"]);
     else if (d.scan && !d.scan.pending && !d.scan.error && d.scan.fail_rows) out.push([`校验集「${d.title || d.id}」有 ${fmtNum(d.scan.fail_rows)} 行规则不通过`, hrefOf("review", d.id), "stale"]);
-    if (d.marked && d.marked.fail) out.push([`校验集「${d.title || d.id}」已标 ${fmtNum(d.marked.fail)} 条不合格`, hrefOf("review", d.id), "failed"]);
+    if (d.marked && d.marked.fail) out.push([`校验集「${d.title || d.id}」已标 ${fmtNum(d.marked.fail)} 条判错`, hrefOf("review", d.id), "failed"]);
   }
   out.push(...resourceAttention(st));
   return out.sort((a, b) => (a[2] === "failed" ? 0 : 1) - (b[2] === "failed" ? 0 : 1));       // 失败项排前面，避免被 12 条上限挤掉
@@ -170,8 +170,8 @@ function reviewTileSub(st) {
   const rs = (st.reviews || []).filter((d) => !d.error);
   if (!rs.length) return "生成结果 · 清洗数据的校验";
   const bad = rs.reduce((a, d) => a + ((d.marked && d.marked.fail) || 0), 0);
-  const seen = rs.reduce((a, d) => a + (d.marked ? d.marked.pass + d.marked.fail + d.marked.doubt : 0), 0);
-  return `已看 ${fmtNum(seen)} 条${bad ? ` · ${fmtNum(bad)} 条不合格` : ""}`;
+  const seen = rs.reduce((a, d) => a + (d.marked ? d.marked.pass + (d.marked.weak || 0) + d.marked.fail + d.marked.doubt : 0), 0);
+  return `已看 ${fmtNum(seen)} 条${bad ? ` · ${fmtNum(bad)} 条判错` : ""}`;
 }
 
 function homePage(r) {
@@ -282,7 +282,7 @@ function nodePage(r) {
 /* ── 成果校验 ─────────────────────────────────────────────────────────────── */
 function reviewMini(d) {
   if (d.error) return h("div", { class: "card err", "data-key": "rm:" + d.id }, `${d.id}: ${d.error}`);
-  const m = d.marked || { pass: 0, fail: 0, doubt: 0 }, done = m.pass + m.fail + m.doubt, total = d.rows || 0;
+  const m = d.marked || { pass: 0, weak: 0, fail: 0, doubt: 0 }, done = m.pass + (m.weak || 0) + m.fail + m.doubt, total = d.rows || 0;
   const sc = d.scan && !d.scan.pending && !d.scan.error ? d.scan : null;
   return h("a", { class: "card mini", href: hrefOf("review", d.id), "data-key": "rm:" + d.id, "data-fade": 1 },
     h("div", { class: "task-head" }, tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), h("span", { class: "name" }, d.title || d.id), exTag(d),
@@ -290,8 +290,8 @@ function reviewMini(d) {
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(d.description || "（未填写说明）", 150)),
     h("div", { class: "pct-row" }, bar(total ? done / total : null, "running", { sm: true }), h("span", { class: "pct" }, total ? fmtPct(done / total) : "--")),
     h("div", { class: "kv" }, h("span", {}, "样本 ", h("b", {}, total ? fmtNum(total) : "-")), h("span", {}, "已看 ", h("b", {}, fmtNum(done))),
-      h("span", { style: { color: "var(--ok)" } }, "合格 ", h("b", {}, fmtNum(m.pass))), h("span", { style: { color: "var(--bad)" } }, "不合格 ", h("b", {}, fmtNum(m.fail))),
-      h("span", { style: { color: "var(--warn)" } }, "存疑 ", h("b", {}, fmtNum(m.doubt))),
+      h("span", { style: { color: "var(--ok)" } }, "合理 ", h("b", {}, fmtNum(m.pass))), h("span", { style: { color: "var(--run)" } }, "偏弱 ", h("b", {}, fmtNum(m.weak || 0))), h("span", { style: { color: "var(--bad)" } }, "判错 ", h("b", {}, fmtNum(m.fail))),
+      h("span", { style: { color: "var(--warn)" } }, "不确定 ", h("b", {}, fmtNum(m.doubt))),
       sc ? h("span", {}, "规则不通过 ", h("b", { style: { color: sc.fail_rows ? "var(--bad)" : "var(--ok)" } }, fmtNum(sc.fail_rows))) : null));
 }
 
@@ -329,18 +329,30 @@ function reviewPage(r) {
     const g = findGraph("datasets", gid), n = g && !g.error ? g.nodes.find((x) => x.id === nid) : null;
     meta.push(h("span", { "data-key": "m-ds" }, "来自数据 ", n ? h("a", { class: "xlink", href: hrefOf("datasets", f.dataset) }, n.name || nid) : h("b", {}, f.dataset)));
   }
+  let addrs = [];                                  // 关联数据资产登记的存放地址：直接在校验页头部标出来
+  if (f.dataset) {
+    const [gid2, nid2] = String(f.dataset).split("/");
+    const g2 = findGraph("datasets", gid2), n2 = g2 && !g2.error ? g2.nodes.find((x) => x.id === nid2) : null;
+    addrs = (n2 && n2.locations) || [];
+  }
   if (f.model) meta.push(h("span", { "data-key": "m-model" }, "模型 ", h("b", {}, f.model)));
   if (f.note) meta.push(h("span", { "data-key": "m-note" }, f.note));
-  const head = h("div", { class: "card", "data-key": "rvhead" },
-    h("div", { class: "g-head" }, h("h3", {}, d.title || d.id), tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), exTag(d)),
-    d.description ? h("p", { class: "desc" }, d.description) : null,
-    meta.length ? h("div", { class: "kv" }, meta) : null);
+  const head = h("div", { class: "card" + (isFolded("rvhead:" + d.id) ? " folded" : ""), "data-key": "rvhead" },
+    h("div", { class: "g-head" }, foldBtn("rvhead:" + d.id), h("h3", {}, d.title || d.id), tag(REVIEW_KIND[d.kind] || REVIEW_KIND.generic, "kind-eval"), exTag(d)),
+    foldBody("rvhead:" + d.id, [
+      d.description ? descBlock(d.description) : null,
+      meta.length ? h("div", { class: "kv" }, meta) : null,
+      addrs.length ? h("div", { class: "addrs", "data-key": "rv-addrs" }, h("div", { class: "kv" }, "数据存放地址"),
+        addrs.map((l, i) => h("div", { class: "addr", "data-key": "ad" + i },
+          h("span", { class: "tag" }, l.label || l.storage || "地址"), l.storage && l.label ? h("span", { class: "id" }, l.storage) : null,
+          l.path ? h("code", {}, l.path) : h("span", { class: "id" }, "（路径已隐藏）"),
+          l.note ? h("span", { class: "id" }, l.note) : null))) : null]));
   let body;
   if (!live) {
     reviewLeave();
     const m = d.marked || {};
     body = h("div", { class: "card", "data-key": "rvhist" }, h("div", { class: "warn" }, "正在回放历史：样本明细读的是当前文件，和历史时刻对不上，所以这里只显示当时的人工校验汇总。"),
-      h("div", { class: "kv" }, h("span", {}, "合格 ", h("b", {}, fmtNum(m.pass || 0))), h("span", {}, "不合格 ", h("b", {}, fmtNum(m.fail || 0))), h("span", {}, "存疑 ", h("b", {}, fmtNum(m.doubt || 0)))),
+      h("div", { class: "kv" }, h("span", {}, "合理 ", h("b", {}, fmtNum(m.pass || 0))), h("span", {}, "偏弱 ", h("b", {}, fmtNum(m.weak || 0))), h("span", {}, "判错 ", h("b", {}, fmtNum(m.fail || 0))), h("span", {}, "不确定 ", h("b", {}, fmtNum(m.doubt || 0)))),
       h("div", { class: "id" }, "点底部「实时」回到现在，继续校验。"));
   } else {
     reviewEnter(d.id);

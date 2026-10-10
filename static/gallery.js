@@ -1,7 +1,7 @@
 "use strict";
 /* 视频图库视图：照旧浏览站（gallery.html）搬过来。侧栏 → 批次头 → 8 格矩阵 + 风格分布 → 筛选条 → 卡片网格 → 详情抽屉
    （播放器、抽帧、拍摄参数、时间轴、提问、题目与答案、计分题、动作变化、每页段信息）。
-   在旧站基础上多了校验：每张卡和抽屉里都能标 合格 / 不合格 / 存疑（键盘 1 / 2 / 3，N 写备注），
+   在旧站基础上多了校验：每张卡和抽屉里都能标 合理 / 偏弱 / 判错 / 不确定（键盘 1 / 2 / 3 / 4，N 写备注），
    视图可以按「规则不通过 / 未标记 / 已标…」筛。
 
    这块有自己的 DOM 和状态，不走看板的增量 patch（播放进度、时间轴游标、输入框焦点都不能被重绘打断）：
@@ -16,8 +16,8 @@ export const ACTION = {   // 动作颜色与中文名（同旧站）
 };
 export const SYNTH = { real: "真实图", crop: "裁切横带", concat: "多页拼接", page: "排版纸面", video: "视频", handheld: "手持帧" };
 const PAGE = 24;
-const VERDICT = { pass: "合格", fail: "不合格", doubt: "存疑" };
-const VIEWS = [["", "全部"], ["fail", "规则不通过"], ["unmarked", "未标记"], ["mpass", "已标合格"], ["mfail", "已标不合格"], ["mdoubt", "已标存疑"]];
+const VERDICT = { pass: "合理", weak: "偏弱", fail: "判错", doubt: "不确定" };
+const VIEWS = [["", "全部"], ["fail", "规则不通过"], ["unmarked", "未标记"], ["mpass", "已标合理"], ["mweak", "已标偏弱"], ["mfail", "已标判错"], ["mdoubt", "已标不确定"]];
 const PAGES_SEG = [["", "全部"], ["1", "单页"], ["multi", "多页"]];
 const TARGET_SEG = [["", "全部"], ["known", "已知"], ["unknown", "未知"]];
 const SORTS = [["", "默认顺序"], ["dur_desc", "时长：长 → 短"], ["dur_asc", "时长：短 → 长"], ["asks", "提问次数多的优先"]];
@@ -293,7 +293,7 @@ function createGallery(root) {
       ...Object.entries(by).sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) =>
         $("div", { class: "ogroup" }, $("div", { class: "ohead" }, name),
           items.sort((a, b) => String(b.gallery.version || "").localeCompare(String(a.gallery.version || ""))).map((d) => {
-            const m = d.marked || {}, marked = (m.pass || 0) + (m.fail || 0) + (m.doubt || 0);
+            const m = d.marked || {}, marked = (m.pass || 0) + (m.weak || 0) + (m.fail || 0) + (m.doubt || 0);
             return $("button", { class: `batch ${d.id === G.id ? "on" : ""}`, "data-key": d.id, onclick: () => { location.hash = `#/review/${encodeURIComponent(d.id)}`; } },
               $("div", { class: "bn" }, d.title || d.id, d.gallery.version ? $("span", { class: "ver" }, d.gallery.version) : null,
                 $("span", { class: "vid" }, "视频"),
@@ -366,11 +366,11 @@ function createGallery(root) {
 
   function renderHead() {
     const d = G.data, def = G.def, m = d.marked || {};
-    const marked = m.pass + m.fail + m.doubt;
+    const marked = (m.pass || 0) + (m.weak || 0) + (m.fail || 0) + (m.doubt || 0);
     fill(els.bmeta,
       $("span", { class: "gtag", style: { marginRight: "6px" } }, def.gallery.badge || "校验集"),
       def.gallery.version ? `版本 ${def.gallery.version} · ` : "", `${fmtNum(d.rows)} 条 · 有视频`,
-      ` · 已标 ${fmtNum(marked)}（合格 ${fmtNum(m.pass)} / 不合格 ${fmtNum(m.fail)} / 存疑 ${fmtNum(m.doubt)}）`,
+      ` · 已标 ${fmtNum(marked)}（合理 ${fmtNum(m.pass || 0)} / 偏弱 ${fmtNum(m.weak || 0)} / 判错 ${fmtNum(m.fail || 0)} / 不确定 ${fmtNum(m.doubt || 0)}）`,
       d.scan && d.scan.too_long ? $("span", { style: { color: "#b4532a", marginLeft: "8px" } },
         `· ${fmtNum(d.scan.too_long)} 行超过单行上限没有读取（启动时设 SB_REVIEW_LINE_MAX 调大）`) : null);
   }
@@ -402,7 +402,7 @@ function createGallery(root) {
     const have = new Set([...els.fStyle.options].map((o) => o.value));
     for (const [k] of styles) if (!have.has(k)) els.fStyle.append($("option", { value: k }, k));
     fill(els.help, "点卡片看详情：", $("b", {}, "视频"), "、", $("b", {}, "时间轴"), "（每页动作、可见区间、提问时刻，点任意位置跳转）、",
-      $("b", {}, "题目与答案"), "、", $("b", {}, "每页段信息"), "、", $("b", {}, "拍摄参数"), "。在详情里按 ", $("b", {}, "1 / 2 / 3"), " 标合格 / 不合格 / 存疑。");
+      $("b", {}, "题目与答案"), "、", $("b", {}, "每页段信息"), "、", $("b", {}, "拍摄参数"), "。在详情里按 ", $("b", {}, "1 / 2 / 3 / 4"), " 标合理 / 偏弱 / 判错 / 不确定。");
     const per = (d.scan && d.scan.per_rule) || [];
     els.rules.hidden = !per.length;
     fill(els.rules, ...(per.length ? [$("div", { class: "muted", style: { fontSize: "12px", marginBottom: "4px" } }, "规则自动检查（点一条只看它不通过的）"),
@@ -446,7 +446,7 @@ function createGallery(root) {
     fill(els.dbody, $("div", {}, ...detailLeft(it, (src, cap) => { els.lbImg.src = src; els.lbCap.textContent = cap; els.lightbox.showModal(); })),
       $("div", {}, ...detailRight(it, ruleLabel)));
     const mk = it.mark && it.mark.v;
-    fill(els.marks, ...["pass", "fail", "doubt"].map((v, i) => $("button", { class: `gvbtn v-${v} ${mk === v ? "on" : ""}`,
+    fill(els.marks, ...["pass", "weak", "fail", "doubt"].map((v, i) => $("button", { class: `gvbtn v-${v} ${mk === v ? "on" : ""}`,
       title: `${VERDICT[v]}（按 ${i + 1}）`, onclick: () => mark(v) }, VERDICT[v])),
       $("button", { class: "gvbtn", title: "写备注（按 N）", onclick: () => note() }, mk && it.mark.note ? "改备注" : "备注"));
     const video = els.dbody.querySelector("video");
@@ -530,8 +530,9 @@ function createGallery(root) {
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else if (e.key === "1") mark("pass");
-    else if (e.key === "2") mark("fail");
-    else if (e.key === "3") mark("doubt");
+    else if (e.key === "2") mark("weak");
+    else if (e.key === "3") mark("fail");
+    else if (e.key === "4") mark("doubt");
     else if (e.key.toLowerCase() === "n") { e.preventDefault(); note(); }
     else return;
   }

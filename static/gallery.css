@@ -73,6 +73,7 @@
               transition: box-shadow .15s, transform .15s; display: flex; flex-direction: column; position: relative; }
 .gal .gcard:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, .08); transform: translateY(-1px); }
 .gal .gcard.mk-pass { border-color: #7fb58a; box-shadow: inset 0 3px 0 #4f8a4b; }
+.gal .gcard.mk-weak { border-color: #9db4d8; box-shadow: inset 0 3px 0 #4c7cf0; }
 .gal .gcard.mk-fail { border-color: #d49a8f; box-shadow: inset 0 3px 0 #b94a3a; }
 .gal .gcard.mk-doubt { border-color: #e0c27a; box-shadow: inset 0 3px 0 #c28a1e; }
 .gal .thumb { position: relative; aspect-ratio: 9/12; background: #1b1b1a; overflow: hidden; }
@@ -80,7 +81,7 @@
 .gal .gbadge { position: absolute; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(0, 0, 0, .62); color: #fff; }
 .gal .gbadge.tl { top: 8px; left: 8px; } .gal .gbadge.br { bottom: 8px; right: 8px; } .gal .gbadge.tr { top: 8px; right: 8px; }
 .gal .gbadge.mk { top: 8px; left: 50%; transform: translateX(-50%); }
-.gal .gbadge.mk.mk-pass { background: #4f8a4b; } .gal .gbadge.mk.mk-fail { background: #b94a3a; } .gal .gbadge.mk.mk-doubt { background: #c28a1e; }
+.gal .gbadge.mk.mk-pass { background: #4f8a4b; } .gal .gbadge.mk.mk-weak { background: #4c7cf0; } .gal .gbadge.mk.mk-fail { background: #b94a3a; } .gal .gbadge.mk.mk-doubt { background: #c28a1e; }
 .gal .cbody { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 5px; }
 .gal .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .gal .gtag { font-size: 11px; padding: 0 7px; border-radius: 999px; background: #f0eee9; color: #5d5952; border: 1px solid var(--gline); white-space: nowrap; }
@@ -110,6 +111,7 @@
 .gal-drawer .dhead .t { font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gal-drawer .gvbtn { font-size: 13px; }
 .gal-drawer .gvbtn.on.v-pass { background: #4f8a4b; border-color: #4f8a4b; color: #fff; }
+.gal-drawer .gvbtn.on.v-weak { background: #4c7cf0; border-color: #4c7cf0; color: #fff; }
 .gal-drawer .gvbtn.on.v-fail { background: #b94a3a; border-color: #b94a3a; color: #fff; }
 .gal-drawer .gvbtn.on.v-doubt { background: #c28a1e; border-color: #c28a1e; color: #fff; }
 .gal-drawer .dbody { flex: 1; overflow: auto; padding: 16px; display: grid; grid-template-columns: minmax(300px, 400px) 1fr; gap: 16px; align-content: start; }

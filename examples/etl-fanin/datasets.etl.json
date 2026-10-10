@@ -1,56 +1,207 @@
 {
-  "_example": "etl-fanin",
-  "title": "示例：经营数据资产（多副本）",
-  "description": "【范例】重点演示「同一份数据有多个地址」：主地址 + 镜像 / 备份 / 缓存，各自写清所在存储与用途。内容是虚构的，请勿照抄。",
-  "nodes": [
-    {"id": "raw_orders", "name": "订单原始增量", "kind": "raw", "desc": "订单库每日导出的增量，不修改。",
-     "source": "订单库按水位线导出", "purpose": "合并宽表的主干；出现口径争议时回溯用",
-     "processing": ["每日一个分区，只追加不覆盖", "保留 90 天后转冷存储"],
-     "locations": [
-       {"label": "主", "role": "primary", "storage": "对象存储-华南", "path": "/example/etl/raw/orders/dt=latest/"},
-       {"label": "跨区镜像", "role": "mirror", "storage": "对象存储-华北", "path": "/example/etl-mirror/raw/orders/dt=latest/", "note": "写入后异步复制，延迟通常 <10 分钟"}
-     ],
-     "meta": {"count": 3200000, "format": "parquet", "version": "每日分区"}},
-    {"id": "raw_web", "name": "访问日志", "kind": "raw", "desc": "站点访问日志，按小时分片。",
-     "source": "日志服务", "purpose": "给订单补充访问来源",
-     "processing": "按小时分片解压后合并为日文件", 
-     "locations": [{"label": "主", "role": "primary", "storage": "对象存储-华南", "path": "/example/etl/raw/web/dt=latest/"}],
-     "meta": {"count": 48000000, "format": "jsonl.gz"}},
-    {"id": "raw_partner", "name": "合作方文件", "kind": "external", "desc": "合作方每日投递的渠道 CSV。",
-     "source": "合作方 SFTP 投递", "purpose": "按渠道码补充渠道信息",
-     "processing": "原样落盘；字段名由合作方决定，进入合并步骤时才统一",
-     "locations": [{"label": "主", "role": "primary", "storage": "对象存储-华南", "path": "/example/etl/raw/partner/dt=latest/"}],
-     "meta": {"format": "csv"}},
-    {"id": "merged", "name": "合并宽表", "kind": "derived", "desc": "三路数据对齐后的中间宽表，只用于质检与加载。",
-     "source": "由三路原始数据合并得到", "purpose": "质检的对象；不对外提供",
-     "processing": "统一时区/币种；订单号关联访问来源；渠道码补充合作方信息",
-     "locations": [{"label": "主", "role": "primary", "storage": "本地盘", "path": "/example/etl/work/merged/"}],
-     "meta": {"format": "parquet", "version": "每日重算"}},
-    {"id": "rejected", "name": "被剔除记录", "kind": "derived", "desc": "质检不通过而被剔除的记录。",
-     "source": "质量校验步骤的旁路输出", "purpose": "复盘数据问题；统计剔除原因分布",
-     "processing": "每条带剔除原因码，不参与下游",
-     "locations": [{"label": "主", "role": "primary", "storage": "对象存储-华南", "path": "/example/etl/rejected/dt=latest/"}],
-     "meta": {"format": "parquet"}},
-    {"id": "wh_table", "name": "仓库分区表", "kind": "processed", "desc": "对外提供查询的分区表。",
-     "source": "通过质检的宽表加载而来", "purpose": "分析与报表的唯一事实来源",
-     "processing": "先写临时分区再原子切换",
-     "locations": [
-       {"label": "主库", "role": "primary", "storage": "数仓-主", "path": "/example/etl/wh/fact_daily"},
-       {"label": "备库", "role": "backup", "storage": "数仓-备", "path": "/example/etl-backup/wh/fact_daily", "note": "每日加载完成后同步，保留 30 天"}
-     ],
-     "meta": {"format": "分区表"}},
-    {"id": "daily_report", "name": "日报", "kind": "derived", "desc": "每日分发的汇总文件。",
-     "source": "从仓库分区表出数", "purpose": "给业务方阅读",
-     "processing": "生成后写入分发目录，不再修改",
-     "locations": [{"label": "分发目录", "role": "primary", "storage": "共享盘", "path": "/example/etl/out/daily/"}],
-     "meta": {"format": "xlsx"}}
-  ],
-  "edges": [
-    {"from": "raw_orders", "to": "merged", "label": "合并对齐"},
-    {"from": "raw_web", "to": "merged", "label": "合并对齐"},
-    {"from": "raw_partner", "to": "merged", "label": "合并对齐"},
-    {"from": "merged", "to": "wh_table", "label": "质检后加载"},
-    {"from": "merged", "to": "rejected", "label": "质检剔除"},
-    {"from": "wh_table", "to": "daily_report", "label": "出数"}
-  ]
+ "_example": "etl-fanin",
+ "title": "示例：经营数据资产（多副本）",
+ "description": "【范例】重点演示「同一份数据有多个地址」：主地址 + 镜像 / 备份 / 缓存，各自写清所在存储与用途。内容是虚构的，请勿照抄。",
+ "nodes": [
+  {
+   "id": "raw_orders",
+   "name": "订单原始增量",
+   "brief": "订单库每日导出的增量，只读",
+   "kind": "raw",
+   "desc": "订单库每日导出的增量，不修改。",
+   "source": "订单库按水位线导出",
+   "purpose": "合并宽表的主干；出现口径争议时回溯用",
+   "processing": [
+    "每日一个分区，只追加不覆盖",
+    "保留 90 天后转冷存储"
+   ],
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "对象存储-华南",
+     "path": "/example/etl/raw/orders/dt=latest/"
+    },
+    {
+     "label": "跨区镜像",
+     "role": "mirror",
+     "storage": "对象存储-华北",
+     "path": "/example/etl-mirror/raw/orders/dt=latest/",
+     "note": "写入后异步复制，延迟通常 <10 分钟"
+    }
+   ],
+   "meta": {
+    "count": 3200000,
+    "format": "parquet",
+    "version": "每日分区"
+   }
+  },
+  {
+   "id": "raw_web",
+   "name": "访问日志",
+   "brief": "站点访问日志，按小时分片",
+   "kind": "raw",
+   "desc": "站点访问日志，按小时分片。",
+   "source": "日志服务",
+   "purpose": "给订单补充访问来源",
+   "processing": "按小时分片解压后合并为日文件",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "对象存储-华南",
+     "path": "/example/etl/raw/web/dt=latest/"
+    }
+   ],
+   "meta": {
+    "count": 48000000,
+    "format": "jsonl.gz"
+   }
+  },
+  {
+   "id": "raw_partner",
+   "name": "合作方文件",
+   "brief": "合作方每日投递的渠道 CSV",
+   "kind": "external",
+   "desc": "合作方每日投递的渠道 CSV。",
+   "source": "合作方 SFTP 投递",
+   "purpose": "按渠道码补充渠道信息",
+   "processing": "原样落盘；字段名由合作方决定，进入合并步骤时才统一",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "对象存储-华南",
+     "path": "/example/etl/raw/partner/dt=latest/"
+    }
+   ],
+   "meta": {
+    "format": "csv"
+   }
+  },
+  {
+   "id": "merged",
+   "name": "合并宽表",
+   "brief": "三路对齐后的中间宽表，仅供质检与加载",
+   "kind": "derived",
+   "desc": "三路数据对齐后的中间宽表，只用于质检与加载。",
+   "source": "由三路原始数据合并得到",
+   "purpose": "质检的对象；不对外提供",
+   "processing": "统一时区/币种；订单号关联访问来源；渠道码补充合作方信息",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "本地盘",
+     "path": "/example/etl/work/merged/"
+    }
+   ],
+   "meta": {
+    "format": "parquet",
+    "version": "每日重算"
+   }
+  },
+  {
+   "id": "rejected",
+   "name": "被剔除记录",
+   "brief": "质检不通过而被剔除的记录",
+   "kind": "derived",
+   "desc": "质检不通过而被剔除的记录。",
+   "source": "质量校验步骤的旁路输出",
+   "purpose": "复盘数据问题；统计剔除原因分布",
+   "processing": "每条带剔除原因码，不参与下游",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "对象存储-华南",
+     "path": "/example/etl/rejected/dt=latest/"
+    }
+   ],
+   "meta": {
+    "format": "parquet"
+   }
+  },
+  {
+   "id": "wh_table",
+   "name": "仓库分区表",
+   "brief": "对外提供查询的仓库分区表",
+   "kind": "processed",
+   "desc": "对外提供查询的分区表。",
+   "source": "通过质检的宽表加载而来",
+   "purpose": "分析与报表的唯一事实来源",
+   "processing": "先写临时分区再原子切换",
+   "locations": [
+    {
+     "label": "主库",
+     "role": "primary",
+     "storage": "数仓-主",
+     "path": "/example/etl/wh/fact_daily"
+    },
+    {
+     "label": "备库",
+     "role": "backup",
+     "storage": "数仓-备",
+     "path": "/example/etl-backup/wh/fact_daily",
+     "note": "每日加载完成后同步，保留 30 天"
+    }
+   ],
+   "meta": {
+    "format": "分区表"
+   }
+  },
+  {
+   "id": "daily_report",
+   "name": "日报",
+   "brief": "每日分发的汇总文件",
+   "kind": "derived",
+   "desc": "每日分发的汇总文件。",
+   "source": "从仓库分区表出数",
+   "purpose": "给业务方阅读",
+   "processing": "生成后写入分发目录，不再修改",
+   "locations": [
+    {
+     "label": "分发目录",
+     "role": "primary",
+     "storage": "共享盘",
+     "path": "/example/etl/out/daily/"
+    }
+   ],
+   "meta": {
+    "format": "xlsx"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "raw_orders",
+   "to": "merged",
+   "label": "合并对齐"
+  },
+  {
+   "from": "raw_web",
+   "to": "merged",
+   "label": "合并对齐"
+  },
+  {
+   "from": "raw_partner",
+   "to": "merged",
+   "label": "合并对齐"
+  },
+  {
+   "from": "merged",
+   "to": "wh_table",
+   "label": "质检后加载"
+  },
+  {
+   "from": "merged",
+   "to": "rejected",
+   "label": "质检剔除"
+  },
+  {
+   "from": "wh_table",
+   "to": "daily_report",
+   "label": "出数"
+  }
+ ]
 }

@@ -1,35 +1,127 @@
 {
-  "_example": "media-curation",
-  "title": "示例：视频素材数据资产",
-  "description": "【范例】重点演示：一份数据的体量用目录而不是单文件表示；以及「用处」里写明限制。内容是虚构的，请勿照抄。",
-  "nodes": [
-    {"id": "raw_video", "name": "原始视频", "kind": "raw", "desc": "采集到的完整视频，只读。",
-     "source": "外部授权素材库（2026-08 批次，授权范围见合同编号记录）", "purpose": "唯一的原始素材；任何二次加工都从这里重新来过",
-     "processing": ["入库校验：损坏文件已标记", "未做任何转码"],
-     "locations": [
-       {"label": "主", "role": "primary", "storage": "冷存储", "path": "/example/media/raw/"},
-       {"label": "异地备份", "role": "backup", "storage": "异地冷存储", "path": "/example/media-backup/raw/", "note": "入库后一次性拷贝并校验 md5"}
-     ],
-     "meta": {"count": 5200, "count_unit": "个视频", "format": "mp4", "version": "2026-08"}},
-    {"id": "clips", "name": "镜头片段", "kind": "processed", "desc": "切分后的短片段，体量大、文件数多。",
-     "source": "由原始视频镜头切分得到", "purpose": "两条支线的共同输入",
-     "processing": "按镜头边界切分；过短片段并入相邻片段",
-     "locations": [{"label": "主", "role": "primary", "storage": "高速盘", "path": "/example/media/clips/"}],
-     "meta": {"count": 310000, "count_unit": "个片段", "format": "mp4"}},
-    {"id": "aligned", "name": "对齐记录", "kind": "derived", "desc": "画面描述与转写对齐后的逐片段记录。",
-     "source": "画面描述 + 语音转写合并", "purpose": "质量筛选的输入",
-     "processing": "按时间戳对齐；缺任一支线的片段不生成记录",
-     "locations": [{"label": "主", "role": "primary", "storage": "高速盘", "path": "/example/media/aligned.jsonl"}],
-     "meta": {"count": 287000, "count_unit": "条", "format": "jsonl"}},
-    {"id": "final", "name": "可用样本", "kind": "derived", "status": "building", "desc": "通过筛选的最终样本，仍在生成。",
-     "source": "对齐记录经质量筛选", "purpose": "下游训练使用；不得包含被拒记录",
-     "processing": "阈值 v1：清晰度 ≥ 0.6 且对齐置信度 ≥ 0.7",
-     "locations": [{"label": "主", "role": "primary", "storage": "高速盘", "path": "/example/media/final.jsonl"}],
-     "meta": {"format": "jsonl", "version": "阈值 v1"}}
-  ],
-  "edges": [
-    {"from": "raw_video", "to": "clips", "label": "镜头切分"},
-    {"from": "clips", "to": "aligned", "label": "描述+转写+对齐"},
-    {"from": "aligned", "to": "final", "label": "质量筛选"}
-  ]
+ "_example": "media-curation",
+ "title": "示例：视频素材数据资产",
+ "description": "【范例】重点演示：一份数据的体量用目录而不是单文件表示；以及「用处」里写明限制。内容是虚构的，请勿照抄。",
+ "nodes": [
+  {
+   "id": "raw_video",
+   "name": "原始视频",
+   "brief": "采集到的完整视频，只读",
+   "kind": "raw",
+   "desc": "采集到的完整视频，只读。",
+   "source": "外部授权素材库（2026-08 批次，授权范围见合同编号记录）",
+   "purpose": "唯一的原始素材；任何二次加工都从这里重新来过",
+   "processing": [
+    "入库校验：损坏文件已标记",
+    "未做任何转码"
+   ],
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "冷存储",
+     "path": "/example/media/raw/"
+    },
+    {
+     "label": "异地备份",
+     "role": "backup",
+     "storage": "异地冷存储",
+     "path": "/example/media-backup/raw/",
+     "note": "入库后一次性拷贝并校验 md5"
+    }
+   ],
+   "meta": {
+    "count": 5200,
+    "count_unit": "个视频",
+    "format": "mp4",
+    "version": "2026-08"
+   }
+  },
+  {
+   "id": "clips",
+   "name": "镜头片段",
+   "brief": "切分后的短片段，体量大、文件数多",
+   "kind": "processed",
+   "desc": "切分后的短片段，体量大、文件数多。",
+   "source": "由原始视频镜头切分得到",
+   "purpose": "两条支线的共同输入",
+   "processing": "按镜头边界切分；过短片段并入相邻片段",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "高速盘",
+     "path": "/example/media/clips/"
+    }
+   ],
+   "meta": {
+    "count": 310000,
+    "count_unit": "个片段",
+    "format": "mp4"
+   }
+  },
+  {
+   "id": "aligned",
+   "name": "对齐记录",
+   "brief": "画面描述与转写对齐后的逐片段记录",
+   "kind": "derived",
+   "desc": "画面描述与转写对齐后的逐片段记录。",
+   "source": "画面描述 + 语音转写合并",
+   "purpose": "质量筛选的输入",
+   "processing": "按时间戳对齐；缺任一支线的片段不生成记录",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "高速盘",
+     "path": "/example/media/aligned.jsonl"
+    }
+   ],
+   "meta": {
+    "count": 287000,
+    "count_unit": "条",
+    "format": "jsonl"
+   }
+  },
+  {
+   "id": "final",
+   "name": "可用样本",
+   "brief": "通过筛选的最终样本，仍在生成",
+   "kind": "derived",
+   "status": "building",
+   "desc": "通过筛选的最终样本，仍在生成。",
+   "source": "对齐记录经质量筛选",
+   "purpose": "下游训练使用；不得包含被拒记录",
+   "processing": "阈值 v1：清晰度 ≥ 0.6 且对齐置信度 ≥ 0.7",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "高速盘",
+     "path": "/example/media/final.jsonl"
+    }
+   ],
+   "meta": {
+    "format": "jsonl",
+    "version": "阈值 v1"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "raw_video",
+   "to": "clips",
+   "label": "镜头切分"
+  },
+  {
+   "from": "clips",
+   "to": "aligned",
+   "label": "描述+转写+对齐"
+  },
+  {
+   "from": "aligned",
+   "to": "final",
+   "label": "质量筛选"
+  }
+ ]
 }

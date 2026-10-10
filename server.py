@@ -363,7 +363,7 @@ def _derive_review(r: dict, marks_obj, live: bool):
     if "counts" in marks_obj:                          # 时间线快照：只有汇总
         c = dict(marks_obj["counts"])
     else:
-        c = {"pass": 0, "fail": 0, "doubt": 0}
+        c = {"pass": 0, "weak": 0, "fail": 0, "doubt": 0}
         for m in (marks_obj.get("marks") or {}).values():
             if isinstance(m, dict) and m.get("v") in c:
                 c[m["v"]] += 1

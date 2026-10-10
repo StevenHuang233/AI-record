@@ -173,3 +173,20 @@ export function bar(p, status, o = {}) {
   return h("div", { class: `bar ${o.sm ? "sm" : ""} ${indet ? "indet" : ""} st-${status} ${o.stale ? "stale" : ""}` },
     h("div", { class: "fill", "data-w": indet ? null : pct, style: { width: pct + "%" } }));
 }
+
+/* ── 卡片收纳：标题左侧的 ▾/▸ 按钮，收起后只留标题行（徽标仍显示，当摘要用） ──────────
+   收起状态按 key 存在浏览器本地（localStorage），刷新页面后保持；默认全部展开。 */
+const FOLD_KEY = "sb_fold";
+const FOLD = (() => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (e) { return new Set(); } })();
+export const isFolded = (key) => FOLD.has(key);
+export function toggleFold(key) {
+  if (FOLD.has(key)) FOLD.delete(key); else FOLD.add(key);
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify([...FOLD].slice(-200))); } catch (e) { /* 存不了就只在本次页面有效 */ }
+}
+export function foldBtn(key) {
+  const closed = FOLD.has(key);
+  return h("button", { class: "fold", "data-act": "fold", "data-a1": key, "data-key": "fold:" + key,
+                       title: closed ? "展开" : "收起", "aria-expanded": closed ? "false" : "true" }, closed ? "▸" : "▾");
+}
+/* 收起时返回 null，展开时原样返回内容：h("div", ..., head, foldBody(key, [正文...])) */
+export const foldBody = (key, kids) => (FOLD.has(key) ? null : kids);

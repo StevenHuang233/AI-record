@@ -1,44 +1,169 @@
 {
-  "_example": "ml-training",
-  "title": "示例：数据资产与血缘",
-  "description": "【范例】节点是数据资产，箭头是加工关系（箭头上写加工过程）。内容是虚构的，请勿照抄。\n每份数据记录：locations=存放地址（有备份就写多条，role=primary/backup/mirror…）、source=来源、purpose=用处、processing=被处理情况。",
-  "nodes": [
-    {"id": "raw", "name": "原始语料", "kind": "raw", "desc": "采集得到的原始样本，只读保存，不做修改。",
-     "source": "内部日志导出（2026-09 批次）", "purpose": "全部下游数据的起点，用于追溯与重新清洗",
-     "processing": ["未做任何处理，保持采集时原样", "已被「清洗过滤」读取一次（规则 v2）"],
-     "locations": [
-       {"label": "主", "role": "primary", "storage": "共享盘A", "path": "/example/ml/raw/corpus.jsonl", "verified": "2026-10-01"},
-       {"label": "异地备份", "role": "backup", "storage": "共享盘B", "path": "/example/ml-backup/raw/corpus.jsonl", "verified": "2026-10-01", "note": "每周日同步"}
-     ],
-     "meta": {"size_bytes": 2400000000, "count": 120000, "format": "jsonl", "version": "v1", "updated": "2026-10-01", "owner": "team-a"}},
-    {"id": "clean", "name": "清洗后数据", "kind": "processed", "desc": "去重与过滤后的训练候选集。",
-     "source": "由「原始语料」清洗得到", "purpose": "作为标注与训练的输入；也是统计数据质量的基准",
-     "processing": "精确去重 + 近似去重；过滤过短/乱码样本；保留率约 58%",
-     "locations": [{"label": "主", "role": "primary", "storage": "共享盘A", "path": "/example/ml/clean/train.jsonl"}],
-     "meta": {"size_bytes": 1800000000, "count": 69999, "format": "jsonl", "version": "v2", "updated": "2026-10-03"}},
-    {"id": "bench", "name": "评测集", "kind": "external", "desc": "公开评测集的本地副本。",
-     "source": "公开数据集（官方仓库下载）", "purpose": "只用于评测，严禁混入训练",
-     "processing": "未处理；仅按官方说明转换为统一格式",
-     "locations": [
-       {"label": "主", "role": "primary", "storage": "共享盘B", "path": "/example/ml/bench/test.parquet"},
-       {"label": "本地缓存", "role": "cache", "storage": "本地盘", "path": "/example/cache/bench/test.parquet"}
-     ],
-     "meta": {"size_bytes": 7400000000, "count": 15000, "format": "parquet", "version": "2026-09"}},
-    {"id": "labels", "name": "模型标注结果", "kind": "derived", "status": "building", "desc": "由模型生成的参考答案，正在生成。",
-     "source": "「清洗后数据」经多模型标注生成", "purpose": "作为微调的监督信号",
-     "processing": "按 8 个分片并行生成，失败样本自动重试",
-     "locations": [{"label": "主", "role": "primary", "storage": "本地盘", "path": "/example/ml/labels/"}],
-     "meta": {"size_bytes": 300000000, "count": 40000, "format": "jsonl", "version": "v1"}},
-    {"id": "weights", "name": "模型权重", "kind": "model", "status": "pending", "desc": "微调产出的权重，尚未生成。",
-     "source": "由「标注结果」微调基座模型得到", "purpose": "评测与上线候选",
-     "processing": "尚未生成",
-     "locations": [{"label": "主", "role": "primary", "storage": "共享盘B", "path": "/example/ml/ckpt/final/"}],
-     "meta": {"format": "safetensors"}}
-  ],
-  "edges": [
-    {"from": "raw", "to": "clean", "label": "清洗去重"},
-    {"from": "clean", "to": "labels", "label": "模型标注"},
-    {"from": "labels", "to": "weights", "label": "微调"},
-    {"from": "bench", "to": "weights", "label": "评测对照"}
-  ]
+ "_example": "ml-training",
+ "title": "示例：数据资产与血缘",
+ "description": "【范例】节点是数据资产，箭头是加工关系（箭头上写加工过程）。内容是虚构的，请勿照抄。\n每份数据记录：locations=存放地址（有备份就写多条，role=primary/backup/mirror…）、source=来源、purpose=用处、processing=被处理情况。",
+ "nodes": [
+  {
+   "id": "raw",
+   "name": "原始语料",
+   "brief": "采集得到的原始语料，只读保存",
+   "kind": "raw",
+   "desc": "采集得到的原始样本，只读保存，不做修改。",
+   "source": "内部日志导出（2026-09 批次）",
+   "purpose": "全部下游数据的起点，用于追溯与重新清洗",
+   "processing": [
+    "未做任何处理，保持采集时原样",
+    "已被「清洗过滤」读取一次（规则 v2）"
+   ],
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/ml/raw/corpus.jsonl",
+     "verified": "2026-10-01"
+    },
+    {
+     "label": "异地备份",
+     "role": "backup",
+     "storage": "共享盘B",
+     "path": "/example/ml-backup/raw/corpus.jsonl",
+     "verified": "2026-10-01",
+     "note": "每周日同步"
+    }
+   ],
+   "meta": {
+    "size_bytes": 2400000000,
+    "count": 120000,
+    "format": "jsonl",
+    "version": "v1",
+    "updated": "2026-10-01",
+    "owner": "team-a"
+   }
+  },
+  {
+   "id": "clean",
+   "name": "清洗后数据",
+   "brief": "去重与过滤后的训练候选集",
+   "kind": "processed",
+   "desc": "去重与过滤后的训练候选集。",
+   "source": "由「原始语料」清洗得到",
+   "purpose": "作为标注与训练的输入；也是统计数据质量的基准",
+   "processing": "精确去重 + 近似去重；过滤过短/乱码样本；保留率约 58%",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘A",
+     "path": "/example/ml/clean/train.jsonl"
+    }
+   ],
+   "meta": {
+    "size_bytes": 1800000000,
+    "count": 69999,
+    "format": "jsonl",
+    "version": "v2",
+    "updated": "2026-10-03"
+   }
+  },
+  {
+   "id": "bench",
+   "name": "评测集",
+   "brief": "公开评测集的本地副本",
+   "kind": "external",
+   "desc": "公开评测集的本地副本。",
+   "source": "公开数据集（官方仓库下载）",
+   "purpose": "只用于评测，严禁混入训练",
+   "processing": "未处理；仅按官方说明转换为统一格式",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘B",
+     "path": "/example/ml/bench/test.parquet"
+    },
+    {
+     "label": "本地缓存",
+     "role": "cache",
+     "storage": "本地盘",
+     "path": "/example/cache/bench/test.parquet"
+    }
+   ],
+   "meta": {
+    "size_bytes": 7400000000,
+    "count": 15000,
+    "format": "parquet",
+    "version": "2026-09"
+   }
+  },
+  {
+   "id": "labels",
+   "name": "模型标注结果",
+   "brief": "模型生成的参考答案，正在生成",
+   "kind": "derived",
+   "status": "building",
+   "desc": "由模型生成的参考答案，正在生成。",
+   "source": "「清洗后数据」经多模型标注生成",
+   "purpose": "作为微调的监督信号",
+   "processing": "按 8 个分片并行生成，失败样本自动重试",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "本地盘",
+     "path": "/example/ml/labels/"
+    }
+   ],
+   "meta": {
+    "size_bytes": 300000000,
+    "count": 40000,
+    "format": "jsonl",
+    "version": "v1"
+   }
+  },
+  {
+   "id": "weights",
+   "name": "模型权重",
+   "brief": "微调产出的权重，尚未生成",
+   "kind": "model",
+   "status": "pending",
+   "desc": "微调产出的权重，尚未生成。",
+   "source": "由「标注结果」微调基座模型得到",
+   "purpose": "评测与上线候选",
+   "processing": "尚未生成",
+   "locations": [
+    {
+     "label": "主",
+     "role": "primary",
+     "storage": "共享盘B",
+     "path": "/example/ml/ckpt/final/"
+    }
+   ],
+   "meta": {
+    "format": "safetensors"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "raw",
+   "to": "clean",
+   "label": "清洗去重"
+  },
+  {
+   "from": "clean",
+   "to": "labels",
+   "label": "模型标注"
+  },
+  {
+   "from": "labels",
+   "to": "weights",
+   "label": "微调"
+  },
+  {
+   "from": "bench",
+   "to": "weights",
+   "label": "评测对照"
+  }
+ ]
 }
