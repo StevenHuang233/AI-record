@@ -4,6 +4,7 @@ import { h, s, bar, badge, clip, fmtBytes, fmtDur, fmtNum, fmtPct, fmtTime, asse
          TASK_ST, NODE_ST, ITEM_ST, TASK_KIND, PIPE_KIND, DATA_KIND, LOC_ROLE, REPLICA, META_LABEL, META_HIDE } from "./util.js";
 import { S, resolveRef, findGraph } from "./store.js";
 import { drawGraph, orderedNodes, ancestors, nodeSize } from "./graph.js";
+import { heatmapBlock, flowBlock } from "./transition.js";
 
 const COLORS = ["#2f6f9f", "#4f8a4b", "#c28a1e", "#8a5a9e", "#b94a3a", "#3f8f8f"];
 const asArr = (x) => (Array.isArray(x) ? x : x == null || x === "" ? [] : [x]);
@@ -447,6 +448,8 @@ function blockEl(b, key) {
       return h("div", { class: "samples" }, items.map((r, i) => h("div", { class: "sample", "data-key": "sm" + i }, h("div", { class: "sidx" }, `#${(b.skip || 0) + i + 1}`),
         fields.map((f, k) => h("div", { class: "sf", "data-key": "sf" + k }, h("div", { class: "fk" }, f.label || f.key), renderValue(getPath(r, f.key), f.type))))));
     }
+    case "heatmap": return heatmapBlock(b, key);
+    case "flow": return flowBlock(b, key);
     case "compare": return h("div", {}, asArr(b.items).map((it, i) => h("div", { class: "cmp", "data-key": "cm" + i }, it.title ? h("div", { class: "chart-title" }, it.title) : null,
       h("div", { class: "cmp-row", style: { "grid-template-columns": `repeat(${Math.max(1, asArr(it.sides).length)}, minmax(0, 1fr))` } }, asArr(it.sides).map((sd, k) => h("div", { class: "cmp-side", "data-key": "sd" + k },
         h("div", { class: "fk" }, sd.label || ""), sd.image ? mediaEl(sd.image, "image") : null, sd.video ? mediaEl(sd.video, "video") : null, sd.audio ? mediaEl(sd.audio, "audio") : null,

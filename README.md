@@ -187,6 +187,11 @@ python3 server.py --state-dir examples/.play/all --port 8766
 - 资源管理：密钥只登记来源、从不读取内容；多层防泄露（见上）；本机探测只执行固定参数的 `nvidia-smi` 与只读系统调用；对外监听时不返回 `host / path / endpoint / access` 与密钥文件路径。
 - 页面所有文本经 `textContent` 渲染，不使用 `innerHTML`；令牌只走环境变量。
 
+## 论文用的图：热力图与状态流转图
+
+模块里可以放 `heatmap`（转移矩阵之类的热力图，多张矩阵切标签页）和 `flow`（状态流转图，线粗 = 概率）。两者都是自带样式的 SVG，
+页面上直接点「下载 SVG / PNG」就能拿到可放进论文的图。字段见 `skills/status-board/references/schema.md` §7。
+
 ## 视频图库（成果校验的一种视图）
 
 成果是一行一条视频时，给校验集加 `gallery` 块，页面变成图库：8 格矩阵、风格分布、筛选 / 排序 / 搜索、卡片网格、详情抽屉（播放器 + 时间轴 + 提问 + 题目答案 + 动作与段信息），

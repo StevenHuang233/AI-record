@@ -128,6 +128,18 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 | `samples` | `source`（资源目录内 `.jsonl`）, `skip`, `limit`(≤50), `fields:[{label,key,type}]`；`key` 支持 `a.b`；`type`: `long image audio video` |
 | `compare` | `items:[{title, sides:[{label, text/image/video/audio}]}]`，并排对比 |
 | `progress` | `items:[{label,value(0-1),note}]` |
+| `heatmap` | 转移矩阵 / 相关矩阵一类的热力图：`rows:[{label}]`, `cols:[{label}]`, `matrices:[{id,name,values,counts?,row_totals?,n_dialogues?,n_rows?}]`（每张矩阵一个标签页）；可选 `title` `caption` `vmax`（色条上限，默认取矩阵最大值）`digits`（小数位，默认 2）`hide_empty`（隐藏全零的行和列，默认 true） |
+| `flow` | 状态流转图：`nodes:[{id,label,col,row,tip?,fill?}]`（按列排，`row` 可以是小数）, `groups:[{id,label,nodes}]`（把几个节点框成一组，边可以连到分组）, `edges:[{from,to,w:{<矩阵id>:概率},note?,bend?,lt?}]`, `phases:[{col,label}]`（列标题）, `matrices:[{id,name}]`（标签页，和 `edges[].w` 的键对应）；可选 `threshold`（低于它的边不标数字） |
+
+**`heatmap` 与 `flow`（论文里常见的两张图）**：都画成**自带样式的 SVG**（颜色、字号写成属性，不依赖页面 CSS），
+块下面有「下载 SVG / 下载 PNG（2 倍分辨率）」，下载下来的图和页面上一致，可以直接放进论文。
+
+- `heatmap`：行列标签、格内数值、右侧色条（ColorBrewer Blues），颜色按矩阵里最大的值拉满；有 `counts` 时多一个「转移概率 / 次数」切换；
+  `matrices` 有多张时出标签页（例如 全部 / 理科 / 文科 / 各数据集）。`values` 是行 × 列的数值；全零的行和列默认隐藏，避免子集里出现整行整列空白。
+- `flow`：节点按 `col`（列）和 `row`（行）排；`groups` 画虚线框；`edges` 的 `w` 是**每张矩阵各一个概率**，线越粗概率越大；
+  概率为 0 的边画成灰色虚线（「规则允许、但当前数据里没有」）；顶部可调「只标出概率 ≥ …」。
+  一个端点上有多条边时落点会沿边框错开；`bend`（像素，负数向上）让长边绕开中间的框；`lt`（0–1）决定概率标签放在曲线的哪个位置。
+- 块的几何计算是纯函数（`heatmapModel` / `flowModel`），`tests/test_static.mjs` 在 Node 里直接测。
 
 资源目录默认 `state/assets/`（`SB_ASSETS_DIR` 可改）。`src`/`source` 是相对路径，禁止 `..`；图片/音视频支持 Range（可拖动播放）。`.jsonl` 不能被直接下载，只能通过 `samples` 读取（单行 >200KB 会被跳过）。
 

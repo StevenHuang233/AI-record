@@ -6,6 +6,7 @@ import { S } from "./store.js";
 import { parseRoute, navKeyOf, renderPage } from "./pages.js";
 import { TL, mount, setEvents } from "./timeline.js";
 import { setOnChange, setView, setRule, gotoPage, mark, setFacet, clearFacets, fetchPage, RV } from "./review.js";
+import { downloadBlock } from "./transition.js";
 
 const POLL_MS = 2500;
 const NAV = [["home", "首页", "#/"], ["train", "训练", "#/train"], ["run", "流水线执行", "#/run"], ["eval", "评测", "#/eval"],
@@ -73,6 +74,10 @@ async function pullTimeline() {
 onAction("selnode", (key, id) => { S.sel[key] = id; render(); });
 /* 数据图：在「分组清单」和「关系图」之间切换（记住每张图的选择） */
 onAction("dsview", (key, mode) => { S.sel[`${key}#view`] = mode; render(); });
+/* 模块里的热力图 / 流转图：切标签页、切选项、下载 */
+onAction("bltab", (key, id) => { S.sel[`${key}#tab`] = id; render(); });
+onAction("blopt", (k, v) => { S.sel[k] = /^[\d.]+$/.test(v) ? Number(v) : v; render(); });
+onAction("bldl", (key, fmt) => downloadBlock(key, fmt));
 /* 成果校验工作台的交互 */
 onAction("rvview", (k) => setView(k));
 onAction("rvrule", (id) => setRule(id));
