@@ -1,6 +1,6 @@
 ---
 name: status-board
-description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样、成果校验、资源登记（API Key 额度与过期、GPU / CPU / 磁盘容量与分配）时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有六个形状各异的范例，只用来对照字段写法，不可照抄内容。
+description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样、成果校验、资源登记（API Key 额度与过期、GPU / CPU / 磁盘容量与分配）、视频等大文件的校验与展示、评测出分与报告排查时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有六个形状各异的范例，只用来对照字段写法，不可照抄内容。
 ---
 
 # status-board
@@ -29,6 +29,7 @@ flowchart LR
 4. **写完必须体检**：`python3 sb.py validate`，目标 0 错误 0 警告。
 5. **上报失败不能拖垮业务**：看板没起不影响主任务（`sb.track` 自带保护；自己调用时外层包 try）。
 6. **不把令牌 / 密钥写进任何定义、任务、note、message、指标——任何地方都不行。** 要登记 API Key，只写它「从哪取」（`secret_ref`：环境变量名 / 文件路径 / 密钥库条目名）。看板会拒绝或隐去疑似密钥，但检测基于已知格式、不是万能的，不要依赖它兜底。
+7. **字段被接受不等于生效。** 数据图 / 展示模块的定义对未知字段**不报错**，校验集对不认识的字段也只是忽略：写了 `layout`、`facets`、`gallery`、`heatmap` 这类字段，页面可能毫无变化。写完要到页面上确认真的显示出来；用扩展字段前先确认当前代码支持（见下面「扩展分支上的能力」）。
 
 ## 范例怎么用（重点：别被范例带偏）
 
@@ -177,6 +178,78 @@ flowchart TD
 - 规则只负责把注意力引到可疑样本上；语义对不对这类判断交给人工，不要硬写成规则。
 - **不要替用户做人工标记**：`sb.mark` 是给「用户明确交代了判定方法」的场景（例如按某规则批量标记）用的；默认由用户在页面上看了再标。
 
+## 扩展分支上的能力（先确认再用）
+
+仓库另有特性分支，是在真实使用里长出来的功能，**不在 main 上**。在 main 里写这些字段**不会报错也不会生效**，而且你无法从返回值看出来。
+
+```mermaid
+flowchart TD
+    A["想用扩展字段"] --> B{"当前代码有这个功能吗?<br/>git grep -q 关键字 -- sbstore.py"}
+    B -->|"退出码 1，没有输出"| C["没有：不要写这个字段<br/>用现有能力表达，或告诉用户需要先合并对应分支"]
+    B -->|"退出码 0"| D["写定义"]
+    D --> E["sb.py validate"]
+    E --> F["打开页面确认真的显示出来"]
+    F -->|"没显示"| G["字段名 / 层级写错了：对照该分支的 schema.md"]
+    G --> D
+    F -->|"显示了"| H["完成"]
+```
+
+| 想做的事 | 需要的字段 | 检测关键字 | 所在分支 |
+|---|---|---|---|
+| 数据资产几十份，关系图看不清 | 数据图 `groups` + 节点 `brief`；更多用 `layout: "list"` | `layout` | `feat/dataset-groups-and-brief`（其余几条线都包含它） |
+| 成果几千行以上，想按字段切着看 | 校验集 `facets`（≤6 个）+ `matrix:{rows,cols,metric}` | `facets` | `feat/review-facets-and-matrix` 或 `feat/review-gallery` |
+| 视频 / 图片已在共享盘，不想复制 | 启动参数 `--asset-root 别名=路径`，样本写 `别名/相对路径` | `asset-root`（查 `server.py`） | 同上 |
+| 校验页要两级分组浏览 / 「偏弱」标记 / 卡片收纳 | 校验集 `group_by`、`summary`；`sb.mark(..., "weak")` | `group_by`、`weak` | `feat/review-facets-and-matrix`（**只有代码、没有文档**，看该分支 `sbstore.py` 的 `_check_review`） |
+| 一行一条视频的成果，要图库视图 | 校验集 `gallery` 块 | `gallery` | `feat/review-gallery` |
+| 论文用的转移矩阵热力图 / 状态流转图 | 展示模块块 `heatmap`、`flow` | `heatmap`（查 `static/views.js`） | `feat/module-transition-blocks` |
+
+- 检测写法：`git grep -q 关键字 -- sbstore.py && echo 有 || echo 没有`（表中标了「查 xx」的换成对应文件）。没匹配时 `git grep` 不输出任何东西、退出码为 1，不会打印 0。
+- 字段的完整写法看**对应分支**的 `references/schema.md`，不要凭记忆写。
+- `feat/review-facets-and-matrix` 与 `feat/module-transition-blocks` 两条线合并会在 `review.py`、`static/app.js`、`static/pages.js`、`static/style.css` 冲突；`feat/dataset-groups-and-brief` 是共同底座。合并后跑分支里的 `tests/`。
+- `feat/gander-eval-kit` 是 Gander 评测脚本集（`gander_eval_kit/`），与看板代码无关；它的 14 条环境踩坑在该目录的 README 里。
+
+## 实践经验（来自真实使用）
+
+**大文件放哪：别软链、别复制**
+
+```mermaid
+flowchart TD
+    A["成果里有视频 / 图片 / 大 jsonl"] --> B{"文件已经在共享盘上?"}
+    B -->|"否，是小文件"| C["放进资源目录 state/assets/，用相对路径引用"]
+    B -->|"是"| D{"想把它软链进 state/assets/?"}
+    D -->|"是"| E["不行：软链指向资源根之外会被当成越界拒绝<br/>跨盘硬链同样不行，这是沙箱设计，不能绕"]
+    D -->|"否"| F["启动时登记只读根：--asset-root 别名=路径"]
+    E --> F
+    F --> G["样本里写 别名/根内相对路径<br/>额外根永远只读，只能启动时登记"]
+```
+
+- 一行一条视频的 jsonl，单行常有几百 KB。单行默认上限 200KB，超过会被跳过并计为「超长行」；整份都要看就设 `SB_REVIEW_LINE_MAX=2000000`（该变量只在 `feat/review-gallery` 这条线上）。
+- 统计目录大小**不要用 `du`**：共享盘（ceph 的 dop-fuse）上目录项会报虚高尺寸。改用逐文件求和：`find <目录> -type f -printf "%s\n" | awk '{s+=$1} END{print s}'`。数据节点的 `auto_stat` 已经是逐文件累加，不受影响。
+
+**评测结果为空 / 对不上，按这个顺序查**
+
+```mermaid
+flowchart TD
+    A["评测报告是空的，或数字对不上"] --> B{"打分脚本的 mode<br/>在白名单里吗?"}
+    B -->|"不在"| C["自定义标签会被静默跳过：报告是空 {}，不报错<br/>改用白名单里的 mode，或扩充白名单"]
+    B -->|"在"| D{"同时看了作答率和准确率吗?"}
+    D -->|"没有"| E["没抽到答案的按 0 分计入<br/>单独统计 answered_rate，口径不同的跑法不能只比准确率"]
+    D -->|"看了"| F{"用了判官模型兜底?"}
+    F -->|"是"| G["看判官错误类型"]
+    G --> H["限流 / 超时 / 5xx / 无可用节点：指数退避重试"]
+    G --> I["额度耗尽 / key 无效 / 无权限 / 模型名不存在 / 参数不支持：立刻判死，别重试"]
+```
+
+- 不同跑法（自然提问、追加作答格式、完整前后台链路）**口径不同**，横向比较要同时记录作答率与准确率：上报时两者都放进 `scores`，例如 `scores={"accuracy": …, "作答率": …}`。
+- 驱动脚本若有后台异步任务，**必须等后台任务进入终态再关会话**，否则结果注入不进去，表现为前台说「交给后台处理」然后没下文。
+- 同机并行跑多个服务实例：端口、GPU、运行目录、工作目录各自隔离。
+
+**校验集的使用习惯**
+
+- 成果多时先看分布再抽样：有 `facets` / `matrix` 就先看矩阵，哪一格偏弱再点进去。矩阵始终展示全量、不随筛选收缩；点格子等于同时按行、列两个分面筛选。
+- 人工标记档位：main 上是 `pass / fail / doubt`；`feat/review-facets-and-matrix` 上是四档 `pass / weak / fail / doubt`（合理 / 偏弱 / 判错 / 不确定），`weak` 表示「不算错但质量偏弱」。在 main 上传 `weak` 会被拒绝。
+- 数据图节点的 `brief` 是显示在图上的一句话，`desc` 才是完整的「含义」，两者不要混用。
+
 ## 页面是子页面嵌套的
 
 汇报时直接给链接比口头描述有用：`http://<host>:<port>/#/task/<id>`。
@@ -210,7 +283,7 @@ flowchart LR
 
 ## 修改看板本身时
 
-改 `static/*.js` 后至少检查：括号配平、`import/export` 名字一致；渲染文本一律经 `h()`/`s()`（`textContent`），**不要用 `innerHTML`**。动画依赖 `util.js` 的 `patch`（增量合并 + `data-key`），新增视图元素要给稳定的 `data-key`。
+改 `static/*.js` 后至少检查：括号配平、`import/export` 名字一致；**一定要实际渲染一次**——ES 模块里 `const` 先用后声明这类错误只有打开页面才暴露，语法检查抓不到（`feat/dataset-groups-and-brief` 修过一个：`drawGraph` 里 `nodes` 先用后声明，整页数据图渲染报错）。分支里的 `tests/test_static.mjs` 把 `util.js` / `store.js` 换成最小桩直接跑 `drawGraph`，有 `tests/` 就跑（需要 Node 18+）；渲染文本一律经 `h()`/`s()`（`textContent`），**不要用 `innerHTML`**。动画依赖 `util.js` 的 `patch`（增量合并 + `data-key`），新增视图元素要给稳定的 `data-key`。
 
 前端分层：`util.js`（DOM / patch / 格式化）→ `graph.js`（布局与结构图）→ `views.js`（任务卡、节点详情、模块块）→ `pages.js`（路由与各子页面）→ `app.js`（取数、顶栏、轮询）。新增子页面：在 `pages.js` 的 `parseRoute` 加路由、写页面函数、在 `renderPage` 分发。配色全部是 `style.css` 顶部的 CSS 变量（米黄基调），JS 里不写死颜色。
 
