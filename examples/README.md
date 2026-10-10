@@ -16,7 +16,7 @@ flowchart TD
     E -->|"通过"| G["完成"]
 ```
 
-## 五个范例，故意长得不一样
+## 六个范例，故意长得不一样
 
 | 范例 | 流程形状 | 领域 | 重点演示 | 刻意**没有**的东西 |
 |---|---|---|---|---|
@@ -25,6 +25,7 @@ flowchart TD
 | `media-curation` | 并行支线再汇合 | 视频素材整理 | 并行支线上的要素追踪（要素 × 支线）、被拒记录 | 评测分数 |
 | `release-checklist` | 带人工关卡的纯步骤流 | 服务发布 | 没有数据图也成立；`sb.node` 手工置位；等待人工 | 数据图 |
 | `review-gallery` | 无 Pipeline 的独立校验集 | 文本清洗 / 模型回答抽检 | 成果校验：`diff` 前后对比、规则自动抓问题、图片字段、人工标记与改判 | Pipeline、任务 |
+| `resource-pool` | 无流程的资源登记 | 团队算力与外部服务 | 资源管理：API Key（只登记来源）、GPU/CPU/磁盘、备份关系、分配与超额告警 | Pipeline、数据图 |
 
 ```mermaid
 flowchart LR
@@ -54,23 +55,29 @@ flowchart LR
         direction LR
         g1["成果 jsonl"] --> g2["规则自动检查"] --> g3["人工标记"] --> g4["结论里程碑"]
     end
+    subgraph RES["resource-pool（资源登记，无流程）"]
+        direction LR
+        p1["定义：来源 · 额度 · 过期"] --> p3["页面：正常 / 需关注 / 异常"]
+        p2["用量 + 分配 + 本机探测"] --> p3
+    end
 ```
 
 ## 看效果
 
 ```bash
-python3 examples/play.py                                   # 把五个范例播放到同一块临时看板（约 10 秒）
+python3 examples/play.py                                   # 把六个范例播放到同一块临时看板（约 10 秒）
 python3 server.py --state-dir examples/.play/all --port <端口>
 SB_STATE_DIR=examples/.play/all python3 sb.py validate --ignore-example   # 范例自身应体检通过
 ```
 
 - 播放只写 `examples/.play/`（已 `.gitignore`），**拒绝写入真实的 `state/`**，也拒绝写入非空目录。
 - 页面上范例会带「范例」标签，拖动底部时间线可以回放它们的演变。
+- **`resource-pool` 里的 API Key 对应的环境变量故意没设置**，所以页面会显示「未设置」告警——这是在演示告警。范例里也**没有任何密钥内容**，只有 `/example/` 占位路径和 `EXAMPLE_` 开头的变量名。
 - **`review-gallery` 的 `scenario.py` 里用 `sb.mark` 模拟了人工标记**，只是为了让页面有内容可看。真实使用中，人工标记应由人在页面上看过之后再标——AI 批量替人标「合格」会让「合格率」失真。
 
 ## 防止被范例带偏的几道护栏
 
-1. **形状多样**：五个范例拓扑、领域、上报手法都不同，没有哪一个能当「唯一正确答案」。
+1. **形状多样**：六个范例拓扑、领域、上报手法都不同，没有哪一个能当「唯一正确答案」。
 2. **占位路径统一用 `/example/`**，定义里带 `_example` 标记：把范例原样抄进真实 `state/`，`validate` 会报警，页面也会打上「范例」标签。
 3. **范例里每个节点都只回答它自己的故事**：数字、阈值、版本号全是编的，不要当作默认值。
 4. **范例会故意展示不完美的一面**（失败、被拒、跳过、重试），这是在示范记法，不是在暗示你的流程也该这样。

@@ -11,9 +11,10 @@ import { orderedNodes, nodeSize } from "./graph.js";
 import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
 import { TL } from "./timeline.js";
 import { reviewWorkbench, enter as reviewEnter, leave as reviewLeave } from "./review.js";
+import { poolMini, poolPage, itemPage, resHref, resourceAttention, resourceTileSub, resourceCount, RES_KIND } from "./resources.js";
 
 const TASK_KINDS = ["train", "run", "eval", "job"];
-const LISTS = { train: "训练", run: "流水线执行", eval: "评测", job: "其他任务", pipelines: "Pipeline", datasets: "数据管理", modules: "定制模块", review: "成果校验" };
+const LISTS = { train: "训练", run: "流水线执行", eval: "评测", job: "其他任务", pipelines: "Pipeline", datasets: "数据管理", modules: "定制模块", review: "成果校验", resources: "资源管理" };
 const REVIEW_KIND = { model_output: "模型生成结果", cleaned_data: "清洗后的数据", generic: "成果" };
 
 export function parseRoute(hash) {
@@ -24,6 +25,10 @@ export function parseRoute(hash) {
   if (TASK_KINDS.includes(a) && !b) return { page: "tasks", kind: a, key: a };
   if (a === "task" && b) return { page: "task", id: b, key: `task/${b}` };
   if (a === "review") return b ? { page: "review", id: b, key: `review/${b}` } : { page: "reviews", key: "review" };
+  if (a === "resources") {
+    if (!b) return { page: "reslist", key: "resources" };
+    return c ? { page: "resitem", gid: b, iid: c, key: `resources/${b}/${c}` } : { page: "respool", id: b, key: `resources/${b}` };
+  }
   if (["pipelines", "datasets", "modules"].includes(a)) {
     if (!b) return { page: "list", kind: a, key: a };
     if (c && a !== "modules") return { page: "node", kind: a, gid: b, nid: c, key: `${a}/${b}/${c}` };
@@ -38,6 +43,7 @@ export function navKeyOf(r) {
   if (r.page === "tasks") return r.kind;
   if (r.page === "task") { const t = S.state && S.state.tasks.find((x) => x.id === r.id); return t ? (t.kind || "job") : "home"; }
   if (r.page === "reviews" || r.page === "review") return "review";
+  if (r.page === "reslist" || r.page === "respool" || r.page === "resitem") return "resources";
   if (r.kind) return r.kind;
   return "home";
 }
@@ -153,7 +159,8 @@ function attention(st) {
     else if (d.scan && !d.scan.pending && !d.scan.error && d.scan.fail_rows) out.push([`校验集「${d.title || d.id}」有 ${fmtNum(d.scan.fail_rows)} 行规则不通过`, hrefOf("review", d.id), "stale"]);
     if (d.marked && d.marked.fail) out.push([`校验集「${d.title || d.id}」已标 ${fmtNum(d.marked.fail)} 条不合格`, hrefOf("review", d.id), "failed"]);
   }
-  return out;
+  out.push(...resourceAttention(st));
+  return out.sort((a, b) => (a[2] === "failed" ? 0 : 1) - (b[2] === "failed" ? 0 : 1));       // 失败项排前面，避免被 12 条上限挤掉
 }
 
 function reviewTileSub(st) {
@@ -181,7 +188,8 @@ function homePage(r) {
       tile("pipelines", "⌘", "Pipeline", st.pipelines.length, "结构图与各步骤作用", "#/pipelines"),
       tile("datasets", "▤", "数据管理", nAssets, `${st.datasets.length} 张数据图 · 地址与来源`, "#/datasets"),
       tile("modules", "❖", "定制模块", st.modules.length, "数据集与效果展示", "#/modules"),
-      tile("review", "☑", "成果校验", (st.reviews || []).length, reviewTileSub(st), "#/review")),
+      tile("review", "☑", "成果校验", (st.reviews || []).length, reviewTileSub(st), "#/review"),
+      tile("resources", "⛭", "资源管理", resourceCount(st), resourceTileSub(st), "#/resources")),
     h("section", { "data-key": "sec:running" }, h("h2", {}, "正在运行", h("small", {}, `${running.length} 个任务`)),
       running.length ? tasksGrid(running, "run-grid") : empty("当前没有运行中的任务。")),
     h("div", { class: "two" },
@@ -328,10 +336,40 @@ function reviewPage(r) {
   return pageShell(r, [["首页", "#/"], [LISTS.review, "#/review"], [d.title || d.id, null]], head, body);
 }
 
+/* ── 资源管理 ─────────────────────────────────────────────────────────────── */
+function reslistPage(r) {
+  const items = S.state.resources || [];
+  return pageShell(r, [["首页", "#/"], [LISTS.resources, null]],
+    pageTitle(LISTS.resources, `${items.length} 个资源池 · API Key、GPU、CPU、磁盘等：怎么取、额度多少、谁在用、有没有问题`),
+    items.length ? h("div", { class: "tasks", "data-key": "grid" }, items.map(poolMini))
+      : h("div", { class: "empty" }, "暂无资源池。用 sb.define 写入（密钥只登记「从哪取」，不要写密钥本身）：", " ", h("code", {}, "python3 sb.py define resources <id> file.json")));
+}
+
+function respoolPage(r) {
+  const g = (S.state.resources || []).find((x) => x.id === r.id);
+  if (!g) return notFound(r, `资源池「${r.id}」`);
+  if (g.error) return pageShell(r, [["首页", "#/"], [LISTS.resources, "#/resources"], [g.id, null]], h("div", { class: "card err" }, g.error));
+  return pageShell(r, [["首页", "#/"], [LISTS.resources, "#/resources"], [g.title || g.id, null]], poolPage(g));
+}
+
+function resitemPage(r) {
+  const g = (S.state.resources || []).find((x) => x.id === r.gid);
+  const it = g && !g.error ? g.items.find((x) => x.id === r.iid) : null;
+  if (!it) return notFound(r, `资源「${r.gid}/${r.iid}」`);
+  const seq = g.items, i = seq.findIndex((x) => x.id === it.id);
+  const nav = (x, dir) => (x ? h("a", { class: `pn ${dir}`, href: resHref(g.id, x.id), "data-key": "pn" + dir }, dir === "prev" ? "← 上一个：" : "下一个：", x.name || x.id, dir === "next" ? " →" : "") : h("span", { "data-key": "pn" + dir }));
+  return pageShell(r, [["首页", "#/"], [LISTS.resources, "#/resources"], [g.title || g.id, resHref(g.id)], [it.name || it.id, null]],
+    pageTitle(it.name || it.id, `${RES_KIND[it.kind] || it.kind} · ${g.id}/${it.id}`), itemPage(g, it),
+    h("div", { class: "pnav", "data-key": "pnav" }, nav(seq[i - 1], "prev"), h("span", { class: "id" }, `${i + 1} / ${seq.length}`), nav(seq[i + 1], "next")));
+}
+
 export function renderPage(r) {
   if (r.page !== "review") reviewLeave();
   try {
     switch (r.page) {
+      case "reslist": return reslistPage(r);
+      case "respool": return respoolPage(r);
+      case "resitem": return resitemPage(r);
       case "home": return homePage(r);
       case "tasks": return tasksPage(r);
       case "task": return taskPage(r);

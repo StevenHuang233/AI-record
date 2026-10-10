@@ -1,0 +1,164 @@
+{
+ "_example": "resource-pool",
+ "title": "示例：团队算力与外部服务资源池",
+ "description": "【范例】演示怎么登记「能被别人调用的资源」：API Key（只登记从哪取、额度、过期，**不存密钥本身**）、GPU 与 CPU 主机、磁盘、对外服务。每项写清用途、怎么调用、谁负责。内容全是虚构的，请勿照抄；到期日期是按「今天」相对生成的，仅为演示告警。\n动态信息（已用额度、谁占了多少卡）用 sb.resource 上报，不写在定义里。",
+ "items": [
+  {
+   "owner": "示例负责人",
+   "id": "llm_main",
+   "name": "主力大模型 Key",
+   "kind": "apikey",
+   "provider": "某大模型厂商",
+   "desc": "标注与评测的主力调用额度，团队共用",
+   "secret_ref": {
+    "env": "EXAMPLE_LLM_MAIN_KEY"
+   },
+   "quota": {
+    "limit": 5000000,
+    "unit": "tokens",
+    "period": "month"
+   },
+   "rate_limit": "600 请求/分钟",
+   "scopes": "chat, embeddings",
+   "expires": "2027-04-08",
+   "rotated": "2026-09-10",
+   "rotate_days": 90,
+   "endpoint": "https://api.example.invalid/v1",
+   "access": "从环境变量读取，不要写进代码或日志；申请额度找负责人",
+   "used_by": [
+    {
+     "label": "批量标注",
+     "task": "pool-label"
+    }
+   ]
+  },
+  {
+   "owner": "示例负责人",
+   "id": "llm_backup",
+   "name": "备用大模型 Key",
+   "kind": "apikey",
+   "provider": "另一家厂商",
+   "desc": "主力限流或故障时切换",
+   "secret_ref": {
+    "vault": "example/team/backup-llm"
+   },
+   "quota": {
+    "limit": 1000000,
+    "unit": "tokens",
+    "period": "month"
+   },
+   "expires": "2026-10-19",
+   "access": "通过团队密钥库取用，申请权限后由负责人开通"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "search_key",
+   "name": "检索服务 Key",
+   "kind": "apikey",
+   "provider": "检索服务商",
+   "desc": "线上检索增强用",
+   "secret_ref": {
+    "file": "/example/secrets/search.key"
+   },
+   "quota": {
+    "limit": 20000,
+    "unit": "次",
+    "period": "day"
+   },
+   "expires": "2026-10-06",
+   "access": "密钥文件放在共享盘，仅属主可读"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "old_key",
+   "name": "旧项目 Key（已撤销）",
+   "kind": "apikey",
+   "provider": "某厂商",
+   "desc": "旧项目遗留，已在厂商后台吊销",
+   "state": "revoked",
+   "secret_ref": {
+    "env": "EXAMPLE_OLD_KEY"
+   },
+   "note": "保留记录便于审计，确认无人引用后可删除本条"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "gpu_train",
+   "name": "训练 GPU 节点",
+   "kind": "gpu",
+   "host": "example-gpu-01",
+   "count": 8,
+   "model": "示例 80G 加速卡",
+   "mem_gb": 80,
+   "desc": "微调与大批量推理",
+   "access": "ssh 登录后用 slurm 提交作业，队列 gpu_long；单次最长 72 小时",
+   "used_by": [
+    {
+     "label": "微调 v2",
+     "task": "pool-train"
+    }
+   ]
+  },
+  {
+   "owner": "示例负责人",
+   "id": "gpu_infer",
+   "name": "推理 GPU 小池",
+   "kind": "gpu",
+   "host": "example-gpu-02",
+   "count": 4,
+   "model": "示例 24G 加速卡",
+   "mem_gb": 24,
+   "desc": "在线评测与小批量推理",
+   "access": "通过推理网关调用，无需登录机器"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "cpu_etl",
+   "name": "数据处理 CPU 机",
+   "kind": "cpu",
+   "host": "example-cpu-01",
+   "count": 128,
+   "mem_gb": 1024,
+   "model": "示例 64 核处理器 ×2",
+   "desc": "清洗、切分等 CPU 密集任务",
+   "access": "ssh 登录，限用 /example/work 目录，不要长期占满"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "disk_work",
+   "name": "工作盘",
+   "kind": "disk",
+   "host": "example-nas",
+   "path": "/example/work",
+   "capacity_bytes": 20000000000000,
+   "fs": "nfs",
+   "desc": "清洗与训练的中间产物",
+   "access": "各节点已挂载到 /example/work；超过 90% 会影响全员"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "disk_backup",
+   "name": "异地备份盘",
+   "kind": "disk",
+   "host": "example-backup",
+   "path": "/example/backup",
+   "capacity_bytes": 40000000000000,
+   "fs": "nfs",
+   "replica_of": "pool/disk_work",
+   "readonly": true,
+   "desc": "工作盘的每日备份",
+   "access": "只读挂载，恢复请联系负责人"
+  },
+  {
+   "owner": "示例负责人",
+   "id": "svc_infer",
+   "name": "推理网关",
+   "kind": "service",
+   "endpoint": "https://infer.example.invalid",
+   "protocol": "http",
+   "auth_ref": "pool/llm_backup",
+   "desc": "对内提供模型推理的统一入口",
+   "access": "POST /v1/chat；需要在请求头带凭据（凭据的取法见关联资源）"
+  }
+ ]
+}

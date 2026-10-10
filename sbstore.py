@@ -37,8 +37,12 @@ NODE_STATUS = {"pending", "running", "done", "failed", "skipped",
 ITEM_STATUS = {"pending", "running", "done", "failed", "skipped"}
 TERMINAL = {"done", "failed", "cancelled"}
 GRAPH_KINDS = ("pipelines", "datasets")
-DEF_COLLS = ("pipelines", "datasets", "modules", "reviews")
-COLLS = DEF_COLLS + ("tasks", "marks")          # marks：成果校验的人工标记（每个校验集一个文件）
+DEF_COLLS = ("pipelines", "datasets", "modules", "reviews", "resources")
+COLLS = DEF_COLLS + ("tasks", "marks", "usage")  # marks：成果校验的人工标记；usage：资源池的动态用量（与静态定义分开存）
+RES_KINDS = ("apikey", "gpu", "cpu", "disk", "service", "other")
+RES_STATES = ("active", "disabled", "revoked", "maintenance")
+RES_PERIODS = ("day", "month", "year", "total")
+MAX_ALLOCS = 30
 PROTECTED_META = {"path", "auto_stat"}
 MARK_VERDICTS = ("pass", "fail", "doubt")
 MAX_MARKS = 20000
@@ -154,10 +158,85 @@ def _num(v, name, lo=0.0):
     return v
 
 
+# ── 密钥防泄露：看板只记录「密钥从哪取」，绝不记录密钥本身 ─────────────────────────
+_SECRET_PATTERNS = [
+    ("OpenAI 风格密钥(sk-…)", re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}")),
+    ("AWS 访问密钥 ID", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("GitHub 令牌", re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}")),
+    ("Slack 令牌", re.compile(r"\bxox[abprs]-[A-Za-z0-9\-]{10,}")),
+    ("Google API 密钥", re.compile(r"\bAIza[0-9A-Za-z_\-]{30,}")),
+    ("JWT", re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}")),
+    ("私钥", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("Bearer 令牌", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/\-]{20,}")),
+    ("URL 里的账号密码", re.compile(r"://[^/\s:@]+:[^/\s@]{3,}@")),
+    ("URL 参数里的密钥", re.compile(r"(?i)[?&;](?:api[_-]?key|apikey|access[_-]?token|token|secret|sig|signature|password|passwd)=[^&\s#]{8,}")),
+]
+_SECRET_KEYNAME = re.compile(r"(?i)(secret|passw|token|api[_-]?key|credential|private)")
+REDACTED = "[已隐去疑似密钥]"
+
+
+def find_secret(s: str):
+    """字符串里有没有疑似密钥；有则返回类型名（仅按已知格式匹配，宁可漏报也不误杀普通文本）。"""
+    for name, rx in _SECRET_PATTERNS:
+        if rx.search(s):
+            return name
+    return None
+
+
+def redact_secrets(s: str) -> str:
+    for _, rx in _SECRET_PATTERNS:
+        s = rx.sub(REDACTED, s)
+    return s
+
+
+def _entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    n = len(s)
+    return -sum(c / n * math.log2(c / n) for c in (s.count(ch) for ch in set(s)))
+
+
+def _looks_high_entropy(s: str) -> bool:
+    """长、无空白、字符类型 ≥3 种且熵高：像随机密钥而不像人写的文字/路径/UUID。"""
+    if len(s) < 32 or any(c.isspace() for c in s) or s.startswith("/") or "://" in s:
+        return False
+    classes = sum(bool(x) for x in (any(c.islower() for c in s), any(c.isupper() for c in s),
+                                    any(c.isdigit() for c in s), any(not c.isalnum() for c in s)))
+    return classes >= 3 and _entropy(s) >= 4.0
+
+
+def reject_secrets(o, where="", strict=False, depth=0):
+    """定义文件里出现疑似密钥 → 直接拒绝写入（不回显内容）。strict=True 额外检查高熵长串与「键名像密钥」的字段。"""
+    if depth > 10:
+        return
+    if isinstance(o, str):
+        kind = find_secret(o)
+        if kind:
+            raise ValueError(f"{where or '内容'} 里含有疑似{kind}。看板不保存密钥本身：请改用 secret_ref（环境变量名 / 文件路径 / 密钥库名称）")
+        if strict and _looks_high_entropy(o):
+            raise ValueError(f"{where or '内容'} 看起来像一串随机密钥（长度 {len(o)}）。看板不保存密钥本身：请改用 secret_ref")
+    elif isinstance(o, list):
+        for i, x in enumerate(o):
+            reject_secrets(x, f"{where}[{i}]", strict, depth + 1)
+    elif isinstance(o, dict):
+        for k, v in o.items():
+            w = f"{where}.{k}" if where else str(k)
+            if strict and isinstance(v, str) and _SECRET_KEYNAME.search(str(k)) and len(v) >= 16 \
+                    and not any(c.isspace() for c in v) and not v.startswith("/") and _looks_keyish(v):
+                raise ValueError(f"{w} 的字段名像密钥且值像密钥。看板不保存密钥本身：请改用 secret_ref")
+            reject_secrets(v, w, strict, depth + 1)
+
+
+def _looks_keyish(v: str) -> bool:
+    classes = sum(bool(x) for x in (any(c.islower() for c in v), any(c.isupper() for c in v),
+                                    any(c.isdigit() for c in v), any(not c.isalnum() for c in v)))
+    return classes >= 3
+
+
 def _str(v, name, n):
     if not isinstance(v, str):
         raise ValueError(f"{name} 必须是字符串")
-    return v[:n]
+    return redact_secrets(v[:n])
 
 
 def _scalars(d, name, limit=50, drop=()):
@@ -172,7 +251,7 @@ def _scalars(d, name, limit=50, drop=()):
         elif isinstance(v, (int, float)):
             out[k[:40]] = _num(v, f"{name}.{k}", -1e18)
         elif isinstance(v, str):
-            out[k[:40]] = v[:400]
+            out[k[:40]] = redact_secrets(v[:400])
         else:
             raise ValueError(f"{name}.{k} 只支持标量")
     return out
@@ -322,7 +401,7 @@ def clean_json(v, depth=0):
             raise ValueError("不允许 NaN / Infinity")
         return v
     if isinstance(v, str):
-        return v[:4000]
+        return redact_secrets(v[:4000])
     if isinstance(v, list):
         if len(v) > 1000:
             raise ValueError("列表过长（>1000）")
@@ -397,9 +476,183 @@ def _check_review(obj: dict) -> None:
         raise ValueError("page_size 必须是 1~50 的整数")
 
 
+_RES_COMMON = {"id", "name", "kind", "state", "owner", "desc", "note", "access", "tags", "used_by"}
+_RES_BY_KIND = {
+    "apikey": {"provider", "secret_ref", "quota", "rate_limit", "expires", "rotated", "rotate_days", "scopes", "endpoint"},
+    "gpu": {"host", "count", "model", "mem_gb", "probe", "gpu_indices"},
+    "cpu": {"host", "count", "model", "mem_gb", "probe"},
+    "disk": {"host", "path", "capacity_bytes", "fs", "probe", "replica_of", "readonly"},
+    "service": {"endpoint", "protocol", "auth_ref", "host"},
+    "other": {"host", "count", "unit", "model"},
+}
+_RES_SECRETY_FIELDS = {"value", "key", "secret", "token", "password", "passwd", "api_key", "apikey", "access_key", "private_key"}
+_ENV_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}/[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
+
+
+def _date(v, name):
+    import datetime
+    if not isinstance(v, str):
+        raise ValueError(f"{name} 必须是 YYYY-MM-DD 格式的日期字符串")
+    try:
+        datetime.date.fromisoformat(v)
+    except ValueError:
+        raise ValueError(f"{name} 必须是 YYYY-MM-DD 格式的日期（收到 {v[:20]!r}）") from None
+    return v
+
+
+def _check_secret_ref(ref, where):
+    if not isinstance(ref, dict) or len(ref) != 1:
+        raise ValueError(f"{where}.secret_ref 必须是 {{env: 环境变量名}} / {{file: 绝对路径}} / {{vault: 密钥库中的名称}} 三选一")
+    (k, v), = ref.items()
+    if k == "env":
+        if not isinstance(v, str) or not _ENV_RE.match(v) or len(v) > 48 or (len(v) >= 32 and "_" not in v):
+            raise ValueError(f"{where}.secret_ref.env 必须是环境变量的「名字」（如 OPENAI_API_KEY，大写字母/数字/下划线）——"
+                             "看起来你填的是密钥本身？看板不保存密钥")
+    elif k == "file":
+        if not isinstance(v, str) or not v.startswith("/") or len(v) > 400 or "\x00" in v:
+            raise ValueError(f"{where}.secret_ref.file 必须是存放密钥的文件的绝对路径")
+    elif k == "vault":
+        if not isinstance(v, str) or not 1 <= len(v) <= 80:
+            raise ValueError(f"{where}.secret_ref.vault 必须是密钥库里的条目名称（1~80 字符）")
+    else:
+        raise ValueError(f"{where}.secret_ref 的键只能是 env / file / vault，收到 {k!r}")
+
+
+def _pos(v, name, integer=False, lo=0.0, strict_pos=False):
+    _num(v, name, lo)
+    if strict_pos and v <= 0:
+        raise ValueError(f"{name} 必须大于 0")
+    if integer and int(v) != v:
+        raise ValueError(f"{name} 必须是整数")
+    return v
+
+
+def _check_resources(obj: dict) -> None:
+    """资源池定义：只记录「资源是什么、怎么取、额度多少」，不记录密钥本身。"""
+    extra = set(obj) - {"title", "description", "items", "_example"}
+    if extra:
+        raise ValueError(f"不支持的顶层字段: {sorted(extra)}（只有 title / description / items）")
+    items = obj.get("items")
+    if not isinstance(items, list) or not items or len(items) > 200:
+        raise ValueError("items 必须是 1~200 项的列表")
+    ids = set()
+    for it in items:
+        if not isinstance(it, dict):
+            raise ValueError("items 每项必须是对象")
+        check_id(it.get("id"))
+        w = f"items[{it['id']}]"
+        if it["id"] in ids:
+            raise ValueError(f"资源 id 重复: {it['id']}")
+        ids.add(it["id"])
+        kind = it.get("kind")
+        if kind not in RES_KINDS:
+            raise ValueError(f"{w}.kind 必须是 {list(RES_KINDS)}")
+        bad = [k for k in it if k not in _RES_COMMON and k not in _RES_BY_KIND[kind]]
+        if bad:
+            hint = "；看板不保存密钥本身，请用 secret_ref 指向它" if set(bad) & _RES_SECRETY_FIELDS else ""
+            raise ValueError(f"{w}（{kind}）不支持字段 {bad}{hint}")
+        if it.get("state") is not None and it["state"] not in RES_STATES:
+            raise ValueError(f"{w}.state 必须是 {list(RES_STATES)}")
+        for f, n in (("name", 80), ("owner", 60), ("desc", 400), ("note", 400), ("access", 400), ("provider", 60), ("host", 120),
+                     ("model", 80), ("scopes", 200), ("rate_limit", 80), ("endpoint", 300), ("protocol", 20), ("fs", 20), ("unit", 12)):
+            if f in it and (not isinstance(it[f], str) or len(it[f]) > n):
+                raise ValueError(f"{w}.{f} 必须是不超过 {n} 字的字符串")
+        if "tags" in it and (not isinstance(it["tags"], list) or len(it["tags"]) > 10 or any(not isinstance(x, str) or len(x) > 30 for x in it["tags"])):
+            raise ValueError(f"{w}.tags 必须是不超过 10 个短字符串")
+        if "used_by" in it:
+            ub = it["used_by"]
+            if not isinstance(ub, list) or len(ub) > 30:
+                raise ValueError(f"{w}.used_by 必须是不超过 30 项的列表")
+            for u in ub:
+                if not isinstance(u, dict) or set(u) - {"label", "task", "dataset"}:
+                    raise ValueError(f"{w}.used_by 每项只能有 label / task / dataset")
+                if "task" in u:
+                    check_id(u["task"])
+                if "dataset" in u and (not isinstance(u["dataset"], str) or not _REF_RE.match(u["dataset"])):
+                    raise ValueError(f"{w}.used_by.dataset 必须是 数据图id/节点id")
+        if "secret_ref" in it:
+            _check_secret_ref(it["secret_ref"], w)
+        elif kind == "apikey" and it.get("state", "active") == "active":
+            pass                                        # 缺失由体检提示，而不是拒绝（允许先登记、后补）
+        if "quota" in it:
+            q = it["quota"]
+            if not isinstance(q, dict) or set(q) - {"limit", "unit", "period"}:
+                raise ValueError(f"{w}.quota 必须是 {{limit, unit, period}}")
+            _pos(q.get("limit"), f"{w}.quota.limit", strict_pos=True)
+            if q.get("unit") is not None and (not isinstance(q["unit"], str) or len(q["unit"]) > 12):
+                raise ValueError(f"{w}.quota.unit 必须是不超过 12 字的字符串")
+            if q.get("period", "month") not in RES_PERIODS:
+                raise ValueError(f"{w}.quota.period 必须是 {list(RES_PERIODS)}")
+        for f in ("expires", "rotated"):
+            if f in it:
+                _date(it[f], f"{w}.{f}")
+        if "rotate_days" in it:
+            _pos(it["rotate_days"], f"{w}.rotate_days", integer=True, strict_pos=True)
+        for f in ("count", "mem_gb", "capacity_bytes"):
+            if f in it:
+                _pos(it[f], f"{w}.{f}", integer=(f != "mem_gb"), strict_pos=True)
+        if "probe" in it and it["probe"] != "local":
+            raise ValueError(f"{w}.probe 目前只支持 \"local\"（探测运行看板服务的这台机器）")
+        if "gpu_indices" in it:
+            gi = it["gpu_indices"]
+            if not isinstance(gi, list) or len(gi) > 64 or any(isinstance(x, bool) or not isinstance(x, int) or x < 0 for x in gi):
+                raise ValueError(f"{w}.gpu_indices 必须是 GPU 序号（非负整数）的列表")
+        if "path" in it and (not isinstance(it["path"], str) or not it["path"].startswith("/") or len(it["path"]) > 400 or "\x00" in it["path"]):
+            raise ValueError(f"{w}.path 必须是绝对路径")
+        if "readonly" in it and not isinstance(it["readonly"], bool):
+            raise ValueError(f"{w}.readonly 必须是 true/false")
+        for f in ("replica_of", "auth_ref"):
+            if f in it and (not isinstance(it[f], str) or not _REF_RE.match(it[f])):
+                raise ValueError(f"{w}.{f} 必须是 资源池id/资源id")
+
+
+def clean_usage_patch(p: dict) -> dict:
+    """资源的动态信息（已用量、分配情况、状态覆盖）：与静态定义分开存。"""
+    if not isinstance(p, dict):
+        raise ValueError("请求体必须是 JSON 对象")
+    out = {}
+    for k, v in p.items():
+        if v is None:
+            continue
+        if k == "used":
+            out[k] = _num(v, k)
+        elif k == "note":
+            out[k] = _str(v, k, 300)
+        elif k == "state":
+            if v not in RES_STATES:
+                raise ValueError(f"state 必须是 {list(RES_STATES)}")
+            out[k] = v
+        elif k == "metrics":
+            out[k] = _scalars(v, k, 20)
+        elif k == "allocations":
+            if not isinstance(v, list) or len(v) > MAX_ALLOCS:
+                raise ValueError(f"allocations 必须是不超过 {MAX_ALLOCS} 项的列表（整体替换）")
+            al = []
+            for a in v:
+                if not isinstance(a, dict) or set(a) - {"label", "task", "amount", "unit", "until", "note"}:
+                    raise ValueError("allocations 每项只能有 label / task / amount / unit / until / note")
+                c = {"label": _str(a.get("label", ""), "allocation.label", 60), "amount": _num(a.get("amount"), "allocation.amount")}
+                if a.get("task") is not None:
+                    c["task"] = check_id(a["task"])
+                if a.get("unit") is not None:
+                    c["unit"] = _str(a["unit"], "allocation.unit", 12)
+                if a.get("until") is not None:
+                    c["until"] = _date(a["until"], "allocation.until")
+                if a.get("note") is not None:
+                    c["note"] = _str(a["note"], "allocation.note", 120)
+                al.append(c)
+            out[k] = al
+        else:
+            raise ValueError(f"不支持的字段: {k}")
+    return out
+
+
 def clean_definition(coll: str, obj) -> dict:
     if coll not in DEF_COLLS:
         raise ValueError(f"coll 必须是 {list(DEF_COLLS)}")
+    if coll == "resources":
+        reject_secrets(obj, strict=True)           # 在 clean_json 静默隐去之前先拒绝：让写入方知道出了问题
     obj = clean_json(obj)
     if not isinstance(obj, dict):
         raise ValueError("定义必须是 JSON 对象")
@@ -432,6 +685,8 @@ def clean_definition(coll: str, obj) -> dict:
                 raise ValueError(f"groups 引用了不存在的节点: {g}")
     elif coll == "reviews":
         _check_review(obj)
+    elif coll == "resources":
+        _check_resources(obj)
     else:
         blocks = obj.get("blocks")
         if not isinstance(blocks, list) or len(blocks) > 200 or any(
@@ -516,11 +771,19 @@ def _node_map(g):
 
 
 def _def_label(coll, iid, old, new) -> str:
-    cn = {"pipelines": "Pipeline", "datasets": "数据图", "modules": "展示模块", "reviews": "校验集"}[coll]
+    cn = {"pipelines": "Pipeline", "datasets": "数据图", "modules": "展示模块", "reviews": "校验集", "resources": "资源池"}[coll]
     title = (new.get("title") if isinstance(new, dict) else None) or iid
     if old is None:
         return f"新增{cn}「{title}」"
     parts = []
+    if coll == "resources":
+        a = {x.get("id"): x for x in old.get("items", []) if isinstance(x, dict)}
+        b = {x.get("id"): x for x in new.get("items", []) if isinstance(x, dict)}
+        nm = lambda m, i: str(m[i].get("name") or i)  # noqa: E731
+        for tag, lst in (("新增", [nm(b, i) for i in b if i not in a]), ("移除", [nm(a, i) for i in a if i not in b]),
+                         ("状态变化", [nm(b, i) for i in b if i in a and a[i].get("state") != b[i].get("state")])):
+            if lst:
+                parts.append(f"{tag} " + "、".join(lst[:3]) + ("…" if len(lst) > 3 else ""))
     if coll in GRAPH_KINDS:
         a, b = _node_map(old), _node_map(new)
         nm = lambda m, i: str(m[i].get("name") or i)  # noqa: E731
@@ -585,6 +848,59 @@ def _marks_label(rid: str, slim: dict) -> str:
     return f"校验「{title}」：合格 {c['pass']} · 不合格 {c['fail']} · 存疑 {c['doubt']}"
 
 
+def _usage_view(u: dict) -> dict:
+    """时间线里的用量快照：去掉内部字段 _logged_at。"""
+    return {k: v for k, v in u.items() if not k.startswith("_")}
+
+
+def _usage_label(gid: str, u: dict, iid=None) -> str:
+    d = read_json(item_path("resources", gid), None) if ID_RE.match(gid) else None
+    title = (d.get("title") if isinstance(d, dict) else None) or gid
+    items = {x.get("id"): x for x in (d.get("items") or []) if isinstance(x, dict)} if isinstance(d, dict) else {}
+    its = (u.get("items") or {})
+    if iid and iid in its:
+        name = (items.get(iid) or {}).get("name") or iid
+        e = its[iid]
+        bits = []
+        if "used" in e:
+            bits.append(f"已用 {e['used']:g}")
+        if e.get("state"):
+            bits.append(e["state"])
+        if e.get("allocations") is not None:
+            bits.append(f"{len(e['allocations'])} 项分配")
+        return f"资源「{title}」· {name}：" + "，".join(bits) if bits else f"资源「{title}」· {name} 更新"
+    return f"资源「{title}」用量更新（{len(its)} 项）"
+
+
+def update_usage(gid: str, iid: str, patch: dict) -> dict:
+    """更新某个资源的动态信息（已用额度 / 分配情况 / 状态覆盖）。资源必须已在定义里存在。"""
+    check_id(iid)
+    clean = clean_usage_patch(patch)          # 字符串里的疑似密钥在这里已被隐去（与任务 message 一致：上报不因备注被拒而中断）
+    d = read_json(item_path("resources", gid), None)
+    if not isinstance(d, dict):
+        raise FileNotFoundError(f"资源池 {gid} 不存在")
+    if not any(isinstance(x, dict) and x.get("id") == iid for x in d.get("items", [])):
+        raise FileNotFoundError(f"资源 {gid}/{iid} 不存在")
+    path, now = item_path("usage", gid), time.time()
+    with lock():
+        u = read_json(path, None) or {}
+        items = u.setdefault("items", {})
+        cur = items.setdefault(iid, {})
+        old_state = cur.get("state")
+        cur.update(clean)
+        cur["at"] = now
+        if len(items) > 200:
+            raise ValueError("用量记录超过 200 项")
+        first = "_logged_at" not in u
+        log = first or cur.get("state") != old_state or now - u["_logged_at"] >= EVENT_GAP
+        if log:
+            u["_logged_at"] = now
+        write_json(path, u)
+        if log:
+            _log_put("usage", gid, _usage_view(u), _usage_label(gid, u, iid), first or cur.get("state") != old_state)
+    return cur
+
+
 def add_milestone(title: str, note: str = "", tags=None) -> dict:
     title = _str(title, "title", 120).strip()
     if not title:
@@ -617,6 +933,13 @@ def sync_files() -> int:
                 if coll == "tasks":
                     if old is None:
                         _log_put(coll, iid, _slim_task(obj), _task_label(obj), True)
+                        n += 1
+                elif coll == "usage":
+                    view, now = _usage_view(obj), time.time()
+                    if old is None or (_canon(old) != _canon(view) and now - obj.get("_logged_at", 0) >= EVENT_GAP):
+                        obj["_logged_at"] = now
+                        write_json(item_path(coll, iid), obj)
+                        _log_put(coll, iid, view, _usage_label(iid, view), old is None)
                         n += 1
                 elif coll == "marks":
                     # 时间线只存汇总数；明细变化靠节流补记，保证停止标记后最终汇总也会进入时间线
@@ -832,6 +1155,13 @@ def lint(ignore_example: bool = False) -> list:
                 raw[c][iid] = o
             except (ValueError, OSError) as e:
                 add("error", f"{c}/{iid}.json 无法解析: {e}")
+    # 安全网：状态目录里任何文件出现疑似密钥都是错误（手改文件会绕过 sb 的拦截）。只报位置，不回显内容
+    for c in COLLS:
+        for iid, o in raw[c].items():
+            try:
+                reject_secrets(o, strict=(c == "resources"))
+            except ValueError as e:
+                add("error", f"{c}/{iid}.json: {e}")
     if not ignore_example:
         for c in COLLS:
             for iid, o in raw[c].items():
@@ -922,6 +1252,60 @@ def lint(ignore_example: bool = False) -> list:
             add("warn", f"{rt}: from.task 引用的任务不存在: {frm['task']}")
         if not frm:
             add("warn", f"{rt}: 缺少 from（这批成果来自哪个任务/数据/模型，便于追溯）")
+    res_ids = {gid: {x.get("id") for x in (g.get("items") or []) if isinstance(x, dict)} for gid, g in raw["resources"].items()}
+    for gid, g in raw["resources"].items():
+        rt = f"resources/{gid}"
+        try:
+            clean_definition("resources", g)
+        except ValueError as e:
+            add("error", f"{rt}: {e}")
+            continue
+        if not g.get("title"):
+            add("warn", f"{rt}: 缺少 title")
+        if not g.get("description"):
+            add("warn", f"{rt}: 缺少 description（这个资源池是什么、归谁管、怎么申请使用）")
+        for it in g["items"]:
+            it_t = f"{rt}:{it['id']}"
+            if not it.get("desc"):
+                add("warn", f"{it_t}: 缺少 desc（这个资源拿来做什么）")
+            if not it.get("owner"):
+                add("warn", f"{it_t}: 缺少 owner（出问题找谁）")
+            k = it["kind"]
+            if it.get("state") in ("revoked", "disabled"):
+                continue                      # 已撤销 / 已停用的资源不再要求补全额度、过期、地址等信息
+            if k == "apikey":
+                if "secret_ref" not in it:
+                    add("warn", f"{it_t}: 缺少 secret_ref（密钥从哪取：env / file / vault）")
+                if "expires" not in it:
+                    add("warn", f"{it_t}: 缺少 expires（过期日期；没有过期时间的密钥请写一个复核日期）")
+                if "quota" not in it and "rate_limit" not in it:
+                    add("warn", f"{it_t}: 缺少 quota / rate_limit（额度或限速）")
+            elif k in ("gpu", "cpu") and "count" not in it and it.get("probe") != "local":
+                add("warn", f"{it_t}: 缺少 count（{'卡数' if k == 'gpu' else '核数'}），或设 probe=local 自动探测")
+            elif k == "disk":
+                if "path" not in it:
+                    add("warn", f"{it_t}: 缺少 path（挂载点 / 目录）")
+                if "capacity_bytes" not in it and it.get("probe") != "local":
+                    add("warn", f"{it_t}: 缺少 capacity_bytes，或设 probe=local 自动探测")
+            if k in ("gpu", "cpu", "disk", "service") and not it.get("access"):
+                add("warn", f"{it_t}: 缺少 access（别人怎么用它：ssh / 队列 / 挂载 / 地址）")
+            for u in it.get("used_by") or []:
+                if u.get("task") and u["task"] not in raw["tasks"]:
+                    add("warn", f"{it_t}: used_by.task 引用的任务不存在: {u['task']}")
+                if u.get("dataset") and not ref_ok("datasets", u["dataset"]):
+                    add("warn", f"{it_t}: used_by.dataset 引用的数据节点不存在: {u['dataset']}")
+            for f in ("replica_of", "auth_ref"):
+                if it.get(f):
+                    g2, i2 = it[f].split("/", 1)
+                    if i2 not in res_ids.get(g2, set()):
+                        add("warn", f"{it_t}: {f} 引用的资源不存在: {it[f]}")
+    for gid, u in raw["usage"].items():
+        for iid, e in (u.get("items") or {}).items():
+            if iid not in res_ids.get(gid, set()):
+                add("warn", f"usage/{gid}: 用量记录引用了不存在的资源 {iid}（定义已被删除？）")
+            for a in (e.get("allocations") or []) if isinstance(e, dict) else []:
+                if isinstance(a, dict) and a.get("task") and a["task"] not in raw["tasks"]:
+                    add("warn", f"usage/{gid}:{iid}: 分配里引用的任务不存在: {a['task']}")
     for tid, t in raw["tasks"].items():
         tt = f"tasks/{tid}"
         p = t.get("pipeline")

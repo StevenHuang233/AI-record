@@ -183,6 +183,76 @@ sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开
 - 单行超过 200KB 会被跳过并计为"不是合法 JSON 对象"。
 - 回放历史时不显示样本明细（读的是当前文件，和历史对不上），只显示当时的标记汇总。
 
+## 7c. 资源管理 `resources/<id>.json`
+
+登记**能被调用的资源**：API Key、GPU / CPU 主机、磁盘、对外服务。页面显示「怎么取、额度多少、谁在用、有没有问题」。
+
+> **铁律：看板不保存密钥本身，只登记「密钥从哪取」。** 写进密钥会被拒绝（见下文「防泄露」）。
+
+```json
+{
+  "title": "标题", "description": "这个资源池是什么、归谁管、怎么申请使用",
+  "items": [
+    {"id": "llm_main", "name": "主力大模型 Key", "kind": "apikey", "state": "active",
+     "desc": "拿来做什么", "owner": "负责人", "access": "怎么调用 / 怎么申请",
+     "provider": "服务商", "scopes": "权限范围", "rate_limit": "600 请求/分钟", "endpoint": "https://…",
+     "secret_ref": {"env": "OPENAI_API_KEY"},
+     "quota": {"limit": 5000000, "unit": "tokens", "period": "month"},
+     "expires": "2027-01-31", "rotated": "2026-09-01", "rotate_days": 90,
+     "used_by": [{"label": "批量标注", "task": "任务id"}]},
+    {"id": "gpu_a", "name": "训练 GPU", "kind": "gpu", "host": "主机名", "count": 8, "model": "型号", "mem_gb": 80, "access": "ssh + 队列名"},
+    {"id": "cpu_a", "name": "处理机", "kind": "cpu", "count": 128, "mem_gb": 1024, "probe": "local", "access": "…"},
+    {"id": "disk_a", "name": "工作盘", "kind": "disk", "path": "/data/work", "capacity_bytes": 20000000000000, "fs": "nfs", "access": "挂载点说明"},
+    {"id": "disk_bk", "name": "备份盘", "kind": "disk", "path": "/backup/work", "replica_of": "池id/disk_a", "readonly": true},
+    {"id": "svc", "name": "推理网关", "kind": "service", "endpoint": "https://…", "protocol": "http", "auth_ref": "池id/llm_main"}
+  ]
+}
+```
+
+**字段是白名单**：通用字段（`id name kind state owner desc note access tags used_by`）+ 每种 `kind` 自己的字段，多写会被拒绝。
+
+| kind | 专有字段 |
+|---|---|
+| `apikey` | `provider secret_ref quota rate_limit expires rotated rotate_days scopes endpoint` |
+| `gpu` | `host count model mem_gb probe gpu_indices` |
+| `cpu` | `host count model mem_gb probe` |
+| `disk` | `host path capacity_bytes fs probe replica_of readonly` |
+| `service` | `endpoint protocol auth_ref host` |
+| `other` | `host count unit model` |
+
+**`secret_ref`（三选一）**：`{"env": "变量名"}`（必须是大写字母/数字/下划线的**名字**）、`{"file": "/绝对路径"}`、`{"vault": "密钥库里的条目名"}`。页面只检查「有没有」：环境变量是否非空、文件是否存在/非空/权限是否 600，**从不读取内容**。注意检查的是**看板服务进程**的环境，不是你的 shell。
+
+**动态信息（不写在定义里）**：已用额度、谁占了多少卡，用 `sb.resource` 上报，存在 `state/usage/<池id>.json`：
+
+```python
+sb.resource("池id", "llm_main", used=1250000)                                    # 额度已用（与 quota.unit 同单位）
+sb.resource("池id", "gpu_a", allocations=[{"label": "微调 v2", "task": "任务id", "amount": 4, "until": "2026-12-31"}])   # 整体替换：释放 = 上报时去掉那一项
+sb.resource("池id", "gpu_a", state="maintenance", note="周五升级驱动")             # 状态覆盖，不用改定义
+```
+
+`allocations` 每项只能有 `label task amount unit until note`；磁盘的 `unit` 可写 `GB/TB`，GPU / CPU 的 `amount` 是卡数 / 核数。
+
+**自动判断（页面上的「正常 / 需关注 / 异常」）**
+
+| 对象 | 需关注 | 异常 |
+|---|---|---|
+| API Key | 14 天内过期；超过轮换周期；额度 ≥ 90%；密钥文件权限过宽；没登记来源 | 已过期；额度用尽；环境变量未设置或为空；密钥文件不存在 / 为空 / 不可读 |
+| 磁盘 | 已用 ≥ 85% | 已用 ≥ 95%；路径不存在 |
+| GPU / CPU / 其他 | 维护中；分配已过期；CPU 负载 ≥ 100% | 分配总量 > 容量 |
+| 已撤销 / 已停用 | 显示为「已停用」，不再做任何检查 | — |
+
+**本机探测**（`"probe": "local"`，仅 `gpu` / `cpu` / `disk`）：探测的是**运行看板服务的这台机器**——GPU 逐卡利用率与显存（固定参数的 `nvidia-smi`）、CPU 核数与负载与内存、磁盘总量与已用。后台线程执行并缓存 5 秒，挂死的网络盘不会拖住页面；`gpu_indices: [0,1]` 可只取其中几张卡。想看**别的机器**的 GPU：在那台机器上跑脚本，用 `sb.resource(..., metrics={...}, used=...)` 上报；看板**不会主动连接**任何远程地址（避免 SSRF）。
+
+**防泄露（多层）**
+1. 定义里出现已知格式的密钥（`sk-…`、AWS、GitHub、Slack、Google、JWT、私钥、`Bearer …`、URL 账号密码、URL 参数里的 `api_key=`）→ 整个定义被拒绝，错误信息**不回显内容**。
+2. 资源定义额外检查：任意字段里的高熵长串、`key / secret / token / password` 这类字段名 → 拒绝，并提示改用 `secret_ref`；`secret_ref.env` 写成了一串随机字符（把密钥填进了变量名）→ 拒绝。
+3. 其他所有定义、任务的 `message / name / metrics`、用量的 `note`：疑似密钥被**静默替换**为 `[已隐去疑似密钥]`（上报不会因此中断，但密钥不落盘、不进时间线）。
+4. `sb.py validate` 会扫描**整个状态目录**，发现疑似密钥报**错误**——兜底手改文件绕过 `sb` 的情况。
+5. 对外监听（`--host 0.0.0.0`）时，不向浏览器返回 `host / path / endpoint / access` 和密钥文件路径。
+6. 检测基于已知格式，**不是万能的**：自定义格式的密钥可能漏掉。不要依赖它，别把密钥交给看板。
+
+**体检会提示**：缺 `desc / owner`；apikey 缺 `secret_ref / expires / quota 或 rate_limit`；gpu/cpu 缺 `count`（且没设 probe）；disk 缺 `path / capacity_bytes`；`access` 缺失；`used_by / auth_ref / replica_of` 引用不存在；用量里引用了已删除的资源或不存在的任务。已撤销 / 已停用的资源不再要求补全。
+
 ## 8. 命令行速查
 
 ```bash
@@ -195,6 +265,9 @@ python3 sb.py define pipelines main main.json
 python3 sb.py milestone "v2 发布" --note "…" --tag v2
 python3 sb.py define reviews r1 review.json
 python3 sb.py mark r1 12 fail --note "拒答"      # verdict: pass | fail | doubt | clear
+python3 sb.py define resources pool res.json
+python3 sb.py resource pool llm_main --used 1250000 --note "本月"
+python3 sb.py resource pool gpu_a --alloc "微调=4:任务id" --alloc "评测=2"      # 整体替换；--alloc none 清空
 python3 sb.py rm-task <id>
 python3 sb.py show
 python3 sb.py validate [--strict]
@@ -202,10 +275,10 @@ python3 sb.py validate [--strict]
 
 ## 9. 体检 `validate` 检查什么
 
-JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
+JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `title/description`；Pipeline 节点缺 `role/desc`、`reads/writes` 引用不存在；数据节点缺 `locations/source/purpose/processing`；校验集缺 `description/from`、源文件不存在、`from.dataset/task` 引用不存在；资源池缺 `desc/owner/secret_ref/expires` 等（见 §7c）；**状态目录里任何文件出现疑似密钥（错误）**；任务引用的 `pipeline/node/ref` 不存在、训练/评测缺 `model/datasets`、`run` 缺 `pipeline`。
 
 ## 10. 服务与安全
 
 - 启动：`python3 server.py --port <p>`（默认只监听 127.0.0.1，并校验 Host）。对外监听必须 `export SB_TOKEN=…`，否则写接口关闭，且不向浏览器返回数据真实路径（`SB_SHOW_PATHS=1` 可开启）。
-- 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`（coll 含 `reviews`）、`POST /api/milestone`、`POST /api/review/<id>/marks`；读样本 `GET /api/review/<id>?view=&page=&size=&rule=`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
-- 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_BUDGET` `SB_REVIEW_MAX_ROWS` `SB_REVIEW_BUDGET`。
+- 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`（coll 含 `reviews`）、`POST /api/milestone`、`POST /api/review/<id>/marks`、`POST /api/resources/<池id>/<资源id>`（更新用量）；读样本 `GET /api/review/<id>?view=&page=&size=&rule=`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
+- 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_BUDGET` `SB_REVIEW_MAX_ROWS` `SB_REVIEW_BUDGET` `SB_PROBE_TTL`。

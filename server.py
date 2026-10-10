@@ -22,6 +22,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
+import resources
 import review
 import sbstore as store
 
@@ -392,7 +393,7 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
     tasks.sort(key=lambda t: -(t.get("started_at") or t.get("created_at") or 0))
     out = {"now": now, "title": str(board.get("title") or "状态看板")[:80],
            "subtitle": str(board.get("subtitle") or "")[:200], "writable": CONFIG["writable"], "tasks": tasks}
-    for kind in store.GRAPH_KINDS + ("modules", "reviews"):
+    for kind in store.GRAPH_KINDS + ("modules", "reviews", "resources"):
         items = []
         for iid, obj in raw[kind].items():
             if "__error__" in obj:
@@ -405,6 +406,8 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
                     _derive_module(g)
                 elif kind == "reviews":
                     _derive_review(g, raw["marks"].get(iid), live)
+                elif kind == "resources":
+                    resources.derive(g, raw["usage"].get(iid), now, live, CONFIG["show_paths"])
                 else:
                     _clean_graph(g)
                     (_derive_pipeline if kind == "pipelines" else _derive_dataset)(g, *([tasks] if kind == "pipelines" else []))
@@ -438,7 +441,8 @@ def state_at(at):
 # ── HTTP ──────────────────────────────────────────────────────────────────────
 ROUTE_TASK = re.compile(r"^/api/tasks/([^/]+)$")
 ROUTE_NODE = re.compile(r"^/api/(pipelines|datasets)/([^/]+)/nodes/([^/]+)$")
-ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules|reviews)/([^/]+)$")
+ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules|reviews|resources)/([^/]+)$")
+ROUTE_RES = re.compile(r"^/api/resources/([^/]+)/([^/]+)$")
 ROUTE_REVIEW = re.compile(r"^/api/review/([^/]+)$")
 ROUTE_MARKS = re.compile(r"^/api/review/([^/]+)/marks$")
 
@@ -608,6 +612,9 @@ class Handler(BaseHTTPRequestHandler):
             m = ROUTE_NODE.match(path)
             if m:
                 return self._json(200, store.update_node(m.group(1), m.group(2), m.group(3), self._body()))
+            m = ROUTE_RES.match(path)
+            if m:
+                return self._json(200, store.update_usage(m.group(1), m.group(2), self._body()))
             m = ROUTE_MARKS.match(path)
             if m:
                 b = self._body()

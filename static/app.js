@@ -9,7 +9,7 @@ import { setOnChange, setView, setRule, gotoPage, mark, RV } from "./review.js";
 
 const POLL_MS = 2500;
 const NAV = [["home", "首页", "#/"], ["train", "训练", "#/train"], ["run", "流水线执行", "#/run"], ["eval", "评测", "#/eval"],
-             ["pipelines", "Pipeline", "#/pipelines"], ["datasets", "数据管理", "#/datasets"], ["review", "成果校验", "#/review"], ["modules", "定制模块", "#/modules"]];
+             ["pipelines", "Pipeline", "#/pipelines"], ["datasets", "数据管理", "#/datasets"], ["review", "成果校验", "#/review"], ["resources", "资源管理", "#/resources"], ["modules", "定制模块", "#/modules"]];
 let seq = 0;
 let lastRoute = null;
 

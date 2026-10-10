@@ -125,6 +125,17 @@ def review_rows(rows, rel_path: str) -> int:
     return n
 
 
+def resource(pool_id: str, item_id: str, **fields) -> dict:
+    """更新某个资源的动态信息（资源必须已在 resources 定义里存在）。
+    可用字段：used（已用额度，与定义里 quota.unit 同单位）、allocations（谁占了多少，整体替换）、state（active/disabled/revoked/maintenance）、note、metrics。
+    注意：这里和所有定义里都不能写密钥本身——看板只记录「密钥从哪取」（secret_ref）。"""
+    check_id(pool_id)
+    check_id(item_id)
+    if _remote():
+        return _http("POST", f"/api/resources/{pool_id}/{item_id}", fields)
+    return store.update_usage(pool_id, item_id, fields)
+
+
 def rm_task(task_id: str):
     check_id(task_id)
     if _remote():
@@ -181,7 +192,7 @@ def _cmd_show():
         if c == "reviews":
             print(f"[{c}] " + (", ".join(f"{i}(标记 {len((raw['marks'].get(i) or {}).get('marks') or {})})" for i in raw[c]) or "（空）"))
             continue
-        print(f"[{c}] " + (", ".join(f"{i}({len(o.get('nodes', o.get('blocks', [])))})" for i, o in raw[c].items()) or "（空）"))
+        print(f"[{c}] " + (", ".join(f"{i}({len(o.get('nodes', o.get('blocks', o.get('items', []))))})" for i, o in raw[c].items()) or "（空）"))
     print(f"[tasks] {len(raw['tasks'])} 个")
     for i, t in raw["tasks"].items():
         tot = t.get("total")
@@ -251,6 +262,15 @@ def main(argv=None) -> int:
     k.add_argument("--note", default="")
     k.add_argument("--tag", action="append")
 
+    q = sub.add_parser("resource", help="更新资源的动态信息（已用额度 / 状态 / 备注 / 分配）。密钥本身绝不要写在这里")
+    q.add_argument("pool")
+    q.add_argument("item")
+    q.add_argument("--used", type=float, help="已用额度（与 quota.unit 同单位）")
+    q.add_argument("--state", choices=["active", "disabled", "revoked", "maintenance"])
+    q.add_argument("--note", default=None)
+    q.add_argument("--alloc", action="append", metavar="标签=数量[:任务id]",
+                   help="分配项，可重复；整体替换已有分配。例：--alloc 微调=4:train-v2 --alloc 评测=2；传 --alloc none 清空")
+
     r = sub.add_parser("rm-task", help="删除任务")
     r.add_argument("id")
 
@@ -286,6 +306,16 @@ def main(argv=None) -> int:
             item(a.task_id, a.item_id, a.step, a.status, **{k: v for k, v in (("name", a.name), ("note", a.note)) if v})
         elif a.cmd == "point":
             point(a.task_id, a.name, a.x, a.y)
+        elif a.cmd == "resource":
+            f = {k: v for k, v in (("used", a.used), ("state", a.state), ("note", a.note)) if v is not None}
+            if a.alloc is not None:
+                al = []
+                for x in ([] if a.alloc == ["none"] else a.alloc):
+                    lab, _, rest = x.partition("=")
+                    amt, _, task = rest.partition(":")
+                    al.append({"label": lab, "amount": float(amt), **({"task": task} if task else {})})
+                f["allocations"] = al
+            resource(a.pool, a.item, **f)
         elif a.cmd == "mark":
             mark(a.review_id, a.line, None if a.verdict == "clear" else a.verdict, a.note, a.tag)
         elif a.cmd == "rm-task":

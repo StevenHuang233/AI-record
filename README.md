@@ -37,6 +37,7 @@ flowchart LR
 | `#/eval` → `#/task/<id>` | 评测：评测集及其地址、被测模型、进度与分数 |
 | `#/pipelines` → `#/pipelines/<图>` → `#/pipelines/<图>/<步骤>` | 结构图（节点标注「作用」）→ 单个步骤子页面（输入输出、读写的数据、关联任务、上一步/下一步） |
 | `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据血缘图 + 清单 → 单份数据：**所有存放地址（含备份，自动校验副本一致性）**、含义、来源、用处、被处理情况 |
+| `#/resources` → `#/resources/<池>` → `#/resources/<池>/<资源>` | **资源管理**：API Key（额度、过期、轮换、密钥是否可取）、GPU / CPU / 磁盘（容量、分配、本机实时探测）、对内服务；自动判断「正常 / 需关注 / 异常」并进入首页「需要关注」 |
 | `#/modules` → `#/modules/<id>` | 指标卡、柱状/折线图、表格、图片/音视频、jsonl 样本抽查、并排对比等 |
 | `#/review` → `#/review/<id>` | **成果校验工作台**：审阅模型生成的结果 / 清洗出来的数据。规则自动检查（统计每条规则不通过的行数，点规则只看对应样本）+ 人工逐条标记「合格 / 不合格 / 存疑」+ 备注；`diff` 字段直接看清洗前后改了什么；翻页、筛选视图；键盘 `J/K` 切换、`1/2/3` 标记 |
 | 底部时间线（全局） | 拖动 / 播放(0.5x–8x) / 上一个下一个 / 仅看关键事件 / 里程碑旗标；回放时节点平移、连线形变、进度条增长、曲线延伸、元素淡入淡出；回放中可继续点进子页面 |
@@ -90,12 +91,38 @@ sb.define("reviews", "r1", {                      # 声明校验集（字段与�
 - 大文件在后台线程扫描，页面先显示「正在扫描」；每行只记录失败的规则号，几十万行也不占多少内存。
 - 人工标记存在 `state/marks/`，记录当时那一行的内容哈希：源文件改动后会提示「标记可能过期」。时间线里只记汇总数，不带逐条明细。
 
+## 资源管理
+
+登记**能被调用的资源**：API Key、GPU / CPU 主机、磁盘、对内服务。页面告诉你每项「怎么取、额度多少、谁在用、有没有问题」。
+
+```mermaid
+flowchart LR
+    A["定义 resources/池.json<br/>是什么 · 怎么取 · 额度 · 负责人"] --> P["资源页面"]
+    B["sb.resource 上报<br/>已用额度 · 分配 · 状态"] --> P
+    C["probe=local 本机探测<br/>GPU 逐卡 · CPU 负载 · 磁盘用量"] --> P
+    P --> W["自动判断 正常 / 需关注 / 异常<br/>进入首页「需要关注」"]
+```
+
+```python
+sb.define("resources", "pool", {"title": "…", "description": "…", "items": [
+    {"id": "llm", "name": "主力大模型 Key", "kind": "apikey", "desc": "…", "owner": "…",
+     "secret_ref": {"env": "MY_LLM_KEY"},                          # 只写「从哪取」，不写密钥
+     "quota": {"limit": 5000000, "unit": "tokens", "period": "month"}, "expires": "2027-01-31"},
+    {"id": "gpu", "name": "训练 GPU", "kind": "gpu", "count": 8, "access": "ssh + 队列名", "desc": "…", "owner": "…"}]})
+sb.resource("pool", "llm", used=1250000)                                                      # 动态用量
+sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2", "amount": 4}])   # 谁占了多少（整体替换）
+```
+
+- **看板不保存密钥**。写进密钥会被拒绝（`sk-…`、AWS、GitHub、Slack、JWT、私钥、`Bearer …`、URL 里的账号密码等），其他地方（任务 message、备注）里的疑似密钥会被替换为 `[已隐去疑似密钥]`；`sb.py validate` 会扫描整个状态目录兜底。**检测基于已知格式，不是万能的**——别把密钥交给看板。
+- 页面只检查密钥「有没有」（环境变量非空 / 文件存在、非空、权限 600），**从不读取内容**。检查的是看板服务进程的环境。
+- `probe: "local"` 只探测**运行看板服务的这台机器**。看板**不会主动连接**任何远程地址；别的机器的用量请在那台机器上用 `sb.resource` 上报。
+
 ## 范例
 
-`examples/` 里有五个**形状各异**的范例（线性链、扇入+关卡+扇出、并行支线、带人工关卡的纯步骤流、独立的成果校验集），内容全是虚构的，只用来对照字段写法，**不是模板**。
+`examples/` 里有六个**形状各异**的范例（线性链、扇入+关卡+扇出、并行支线、带人工关卡的纯步骤流、独立的成果校验集、资源登记），内容全是虚构的，只用来对照字段写法，**不是模板**。
 
 ```bash
-python3 examples/play.py                                     # 把五个范例模拟运行到一块临时看板（约 10 秒，只写 examples/.play/）
+python3 examples/play.py                                     # 把六个范例模拟运行到一块临时看板（约 10 秒，只写 examples/.play/）
 python3 server.py --state-dir examples/.play/all --port 8766
 ```
 
@@ -117,15 +144,17 @@ python3 server.py --state-dir examples/.play/all --port 8766
 - 写入字段白名单 + 长度/类型/数量校验；定义文件限制嵌套深度与大小。
 - 资源目录（`/assets/`）只服务白名单扩展名的图片/音视频，解析真实路径后必须仍在资源目录内（防 `..`、软链逃逸）；`.jsonl` 只能通过 `samples` 块或成果校验读取，且校验集的 `source` 在**定义阶段**就会拒绝越界路径和软链。
 - 成果校验的规则不支持正则（避免 ReDoS）；单次最多写 500 条标记；单行超过 200KB 跳过；扫描有行数与耗时上限。
+- 资源管理：密钥只登记来源、从不读取内容；多层防泄露（见上）；本机探测只执行固定参数的 `nvidia-smi` 与只读系统调用；对外监听时不返回 `host / path / endpoint / access` 与密钥文件路径。
 - 页面所有文本经 `textContent` 渲染，不使用 `innerHTML`；令牌只走环境变量。
 
 ## 目录
 
 ```
 server.py    HTTP 服务 + 状态汇总 + 时间线回放     sb.py     上报库 / 命令行
-sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph views review pages timeline app）
+sbstore.py   存储层：校验、原子写、事件日志、体检   static/   前端（ES 模块：util graph views review resources pages timeline app）
 review.py    成果校验：规则引擎、后台扫描、分页读取
-state/       真实数据：board.json pipelines/ datasets/ modules/ reviews/ tasks/ marks/ assets/ timeline.jsonl（新 clone 为空）
+resources.py 资源管理：密钥可用性检查（不读内容）、本机探测、健康判断
+state/       真实数据：board.json pipelines/ datasets/ modules/ reviews/ resources/ tasks/ marks/ usage/ assets/ timeline.jsonl（新 clone 为空）
 examples/    范例（虚构内容）+ play.py 播放器；播放结果写在 examples/.play/（已忽略）
 skills/status-board/              给 AI 的使用说明（.codebuddy/skills/ 下有软链）
 ```

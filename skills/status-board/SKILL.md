@@ -1,6 +1,6 @@
 ---
 name: status-board
-description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有五个形状各异的范例，只用来对照字段写法，不可照抄内容。
+description: 用 status_board 看板记录并展示项目的执行情况。当需要记录或更新模型训练进度、评测进度、Pipeline 执行进度（每个数据要素走到哪一步）、数据资产（含多地址备份、来源/用处/被处理情况）、迭代版本、效果展示或数据集抽样、成果校验、资源登记（API Key 额度与过期、GPU / CPU / 磁盘容量与分配）时使用，也用于创建/修改 Pipeline 结构图与数据管理图，或在这个仓库里做任何上报。看板有时间线可动画回放。仓库内 examples/ 有六个形状各异的范例，只用来对照字段写法，不可照抄内容。
 ---
 
 # status-board
@@ -28,11 +28,11 @@ flowchart LR
 3. **只通过 `sb`（库或命令行）写状态**，不手改 `state/tasks/`、`state/timeline.jsonl`。定义文件可用 `sb.define` 或直接改 JSON，服务会自动补记到时间线。
 4. **写完必须体检**：`python3 sb.py validate`，目标 0 错误 0 警告。
 5. **上报失败不能拖垮业务**：看板没起不影响主任务（`sb.track` 自带保护；自己调用时外层包 try）。
-6. 不把令牌/密钥写进任何定义、任务或 note。
+6. **不把令牌 / 密钥写进任何定义、任务、note、message、指标——任何地方都不行。** 要登记 API Key，只写它「从哪取」（`secret_ref`：环境变量名 / 文件路径 / 密钥库条目名）。看板会拒绝或隐去疑似密钥，但检测基于已知格式、不是万能的，不要依赖它兜底。
 
 ## 范例怎么用（重点：别被范例带偏）
 
-`examples/` 里有五个范例，**拓扑、领域、上报手法都不同，内容全是虚构的**。它们回答的是「这个字段怎么写」，不回答「你的项目长什么样」。
+`examples/` 里有六个范例，**拓扑、领域、上报手法都不同，内容全是虚构的**。它们回答的是「这个字段怎么写」，不回答「你的项目长什么样」。
 
 ```mermaid
 flowchart TD
@@ -86,6 +86,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 | 评测 | `sb.task(id, kind="eval", model=…, datasets=[评测集+地址], scores={…})` | §5 |
 | 迭代/版本节点 | `sb.milestone("标题", note="…")` | §6 |
 | 数据集展示、效果展示 | `sb.define("modules", id, {"blocks": […]})` | §7 |
+| 登记可调用的资源：API Key、GPU / CPU、磁盘、对内服务 | `sb.define("resources", id, {items:[…]})`（**密钥只写 secret_ref**）；动态信息 `sb.resource(池, 资源, used=…, allocations=[…])` | §7c、`patterns.md` P13 |
 | 逐条审阅一批成果（模型生成的结果、清洗出来的数据） | `sb.review_rows(rows, "x.jsonl")` + `sb.define("reviews", id, {source, fields, rules, from…})`；人工标记 `sb.mark(id, 行号, "pass/fail/doubt")` | §7b、`patterns.md` P12 |
 
 ## 标准工作流
@@ -138,6 +139,26 @@ flowchart LR
 
 **D. 做效果展示 / 数据集展示** → 写 `modules` 定义（`references/schema.md` §7）；图片、音视频、jsonl 放资源目录（默认 `state/assets/`，`SB_ASSETS_DIR` 可改），用相对路径引用。
 
+**F. 登记 / 维护资源**（API Key、GPU、磁盘……）
+
+```mermaid
+flowchart TD
+    A["要登记资源"] --> B["写 resources 定义<br/>每项：desc 用途 · owner 负责人 · access 怎么调用"]
+    B --> C{"是 API Key?"}
+    C -->|"是"| D["secret_ref 只写来源<br/>+ quota 额度 + expires 过期日期"]
+    C -->|"否"| E["gpu/cpu 写 count；本机的加 probe=local<br/>disk 写 path 与 capacity_bytes"]
+    D --> V["sb.py validate"]
+    E --> V
+    V -->|"有错误或警告"| B
+    V -->|"通过"| G["日常：sb.resource 上报已用额度 / 分配 / 状态"]
+    G --> H["页面自动判断 正常 / 需关注 / 异常<br/>并进入首页「需要关注」"]
+```
+
+- 额度快用完、Key 快过期、磁盘快满、分配超额，都会**自动**出现在首页，不需要另外上报。
+- 资源停用：把 `state` 置为 `revoked` / `disabled`（留痕），不要直接删。
+- **遇到 `validate` 或写入报「疑似密钥」**：说明某处出现了密钥内容。先去源头删掉，并告诉用户这把密钥可能已经暴露、建议轮换。**不要尝试绕过检测。**
+- 看板不会主动连接远程地址探测别的机器；别的机器的用量请在那台机器上用 `sb.resource` 上报。
+
 **E. 校验一批成果**（模型生成的结果 / 清洗出来的数据）
 
 ```mermaid
@@ -168,9 +189,11 @@ flowchart LR
     H --> DL["#/datasets"] --> DD["#/datasets/图"] --> DN["#/datasets/图/资产"]
     H --> ML["#/modules"] --> MD["#/modules/id"]
     H --> RL["#/review"] --> RD["#/review/id 校验工作台"]
+    H --> RSL["#/resources"] --> RSP["#/resources/池"] --> RSI["#/resources/池/资源"]
     PN -.-> TD
     DN -.-> TD
     RD -.-> TD
+    RSI -.-> TD
 ```
 
 ## 常见坑
@@ -182,6 +205,7 @@ flowchart LR
 - `running` 超过 `stale_after`（默认 300s）无上报会标「疑似停滞」；长耗时步骤要设大 `stale_after` 或定时心跳。
 - 曲线每条最多 300 点（自动抽稀）；`datasets` 列表是**整体替换**（更新用量要传完整列表）。
 - 对外监听（`--host 0.0.0.0`）时，数据 `path` 默认不返回给浏览器，写接口需要 `SB_TOKEN`。
+- 资源池里的 `used_by` / 分配可以链接到任务；`replica_of` 表示备份关系，`auth_ref` 表示服务用哪把 Key。
 - 校验集的 `source` 必须在资源目录内、以 `.jsonl` 结尾；规则**没有正则**，只有声明式 op（见 §7b 表）；回放历史时看不到样本明细。
 
 ## 修改看板本身时
