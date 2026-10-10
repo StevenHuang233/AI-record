@@ -312,8 +312,8 @@ def main(argv=None) -> int:
                 al = []
                 for x in ([] if a.alloc == ["none"] else a.alloc):
                     lab, _, rest = x.partition("=")
-                    amt, _, task = rest.partition(":")
-                    al.append({"label": lab, "amount": float(amt), **({"task": task} if task else {})})
+                    amt, _, tid = rest.partition(":")
+                    al.append({"label": lab, "amount": float(amt), **({"task": tid} if tid else {})})
                 f["allocations"] = al
             resource(a.pool, a.item, **f)
         elif a.cmd == "mark":

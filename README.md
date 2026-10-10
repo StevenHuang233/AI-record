@@ -4,12 +4,51 @@
 
 只依赖 Python 3.8+ 标准库，前端无 CDN、无构建步骤，整个目录拷走即可用。
 
+## 用途
+
+**在本机启动一个 web 服务，用来监督本地正在运行的东西**：训练跑到哪了、流水线处理到哪一步、评测进度、数据放在哪、GPU / 磁盘 / API Key 额度够不够。
+
+- **纯本地运行，不需要推送到云端**：没有账号、没有云服务、不联网也能用。数据只存在本目录的 `state/` 里，默认只监听 `127.0.0.1`。
+- 你的脚本把进度写进 `state/`，网页每 2.5 秒自动刷新；底部时间线可以回放过去发生了什么。
+
+## 使用方法
+
+**1. 启动服务**
+
 ```bash
-python3 server.py                  # http://127.0.0.1:8765
-python3 server.py --host 0.0.0.0 --port 8765    # 对外监听前必须先 export SB_TOKEN=xxx，否则写接口关闭
+cd status_board
+python3 server.py                     # 默认 http://127.0.0.1:8765
+python3 server.py --port 38417        # 端口被占用时换一个
+nohup python3 server.py --port 38417 > /tmp/sb_server.log 2>&1 &     # 放到后台常驻
 ```
 
-状态全部存放在 `state/`（`SB_STATE_DIR` 或 `--state-dir` 可改），实时模式每 2.5 秒轮询刷新。**新 clone 下来 `state/` 是空的**——看板上没有任何内容，直到你写入定义和任务；想先看效果，见下面的「范例」。
+**2. 打开网页**：浏览器访问 `http://127.0.0.1:<端口>/`。如果服务跑在远程开发机上，需要先把该端口转发到本地再访问。
+
+**3. 在你的脚本里上报进度**（和服务在同一台机器上时直接写 `state/`，不需要网络）
+
+```python
+import sb      # 把本目录加入 sys.path，或拷贝 sb.py + sbstore.py 到你的项目
+for x in sb.track(items, "my-job", name="数据处理"):     # 自动上报进度，结束时自动收尾
+    ...
+```
+
+页面上就能看到这个任务的进度条、已用时间、预计剩余。命令行也能上报：`python3 sb.py task my-job --done 10 --total 100`。
+
+**4. 画出你的流程和数据**：把流程写成 Pipeline、数据写成数据管理图（JSON，字段见 `skills/status-board/references/schema.md`），用 `sb.define(...)` 写入。**想先看效果**，见下面的「范例」。
+
+**5. 停止服务**：`pkill -f "server.py --port 38417"`。数据留在 `state/`，下次启动继续显示。
+
+**Pipeline 和「流水线执行」的关系**：Pipeline 是**结构图**（流程有哪些步骤，是静态的）；「流水线执行」是**某一批数据跑过这张图的记录**（每个数据要素现在走到了哪一步）。后者上报后，Pipeline 图上每个步骤的状态和要素数会自动更新，所以两者是配合关系，不是重复。
+
+```mermaid
+flowchart LR
+    A["Pipeline 结构图<br/>有哪些步骤 · 每步的作用"] --> C["页面：图上每个步骤<br/>显示状态与要素数"]
+    B["流水线执行记录<br/>这一批数据走到了哪一步"] --> C
+```
+
+状态全部存放在 `state/`（`SB_STATE_DIR` 或 `--state-dir` 可改）。**新 clone 下来 `state/` 是空的**——看板上没有任何内容，直到你写入定义和任务。
+
+对外监听（`--host 0.0.0.0`）仅在需要让别的机器访问时才用，且必须先 `export SB_TOKEN=xxx`，否则写接口关闭；纯本地使用不需要。
 
 ```mermaid
 flowchart LR
