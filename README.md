@@ -1,6 +1,6 @@
 # status_board
 
-通用、可移植的状态看板：**Pipeline 结构图（节点带中文作用标注）**、**数据管理图（多地址 + 来源/用处/处理情况）**、**进程记录（训练 / 流水线执行 / 评测）**、**定制展示模块**，并用**时间线**回放变化过程（以动画过渡而非直接切换）。
+通用、可移植的状态看板：**Pipeline 结构图（节点带中文作用标注）**、**数据管理（多地址 + 来源/用处/处理情况；可画成关系图，也可按分组列成模块化清单）**、**进程记录（训练 / 流水线执行 / 评测）**、**定制展示模块**，并用**时间线**回放变化过程（以动画过渡而非直接切换）。
 
 只依赖 Python 3.8+ 标准库，前端无 CDN、无构建步骤，整个目录拷走即可用。
 
@@ -75,10 +75,10 @@ flowchart LR
 | `#/run` → `#/task/<id>` | 流水线执行：每个步骤上的数据要素数、「要素 × 步骤」矩阵 |
 | `#/eval` → `#/task/<id>` | 评测：评测集及其地址、被测模型、进度与分数 |
 | `#/pipelines` → `#/pipelines/<图>` → `#/pipelines/<图>/<步骤>` | 结构图（节点标注「作用」）→ 单个步骤子页面（输入输出、读写的数据、关联任务、上一步/下一步） |
-| `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据血缘图 + 清单 → 单份数据：**所有存放地址（含备份，自动校验副本一致性）**、含义、来源、用处、被处理情况 |
+| `#/datasets` → `#/datasets/<图>` → `#/datasets/<图>/<资产>` | 数据：血缘关系图 **或** 按分组的模块化清单（定义里 `layout` 决定默认，页面上随时切换）→ 单份数据：**所有存放地址（含备份，自动校验副本一致性）**、含义、来源、用处、被处理情况 |
 | `#/resources` → `#/resources/<池>` → `#/resources/<池>/<资源>` | **资源管理**：API Key（额度、过期、轮换、密钥是否可取）、GPU / CPU / 磁盘（容量、分配、本机实时探测）、对内服务；自动判断「正常 / 需关注 / 异常」并进入首页「需要关注」 |
 | `#/modules` → `#/modules/<id>` | 指标卡、柱状/折线图、表格、图片/音视频、jsonl 样本抽查、并排对比等 |
-| `#/review` → `#/review/<id>` | **成果校验工作台**：审阅模型生成的结果 / 清洗出来的数据。规则自动检查（统计每条规则不通过的行数，点规则只看对应样本）+ 人工逐条标记「合格 / 不合格 / 存疑」+ 备注；`diff` 字段直接看清洗前后改了什么；翻页、筛选视图；键盘 `J/K` 切换、`1/2/3` 标记 |
+| `#/review` → `#/review/<id>` | **成果校验工作台**：审阅模型生成的结果 / 清洗出来的数据。规则自动检查（统计每条规则不通过的行数，点规则只看对应样本）+ **按字段分面筛选 + 两个分面交叉的矩阵（每格条数与指标中位数）** + 人工逐条标记「合格 / 不合格 / 存疑」+ 备注；`diff` 字段直接看清洗前后改了什么；翻页、筛选视图；键盘 `J/K` 切换、`1/2/3` 标记 |
 | 底部时间线（全局） | 拖动 / 播放(0.5x–8x) / 上一个下一个 / 仅看关键事件 / 里程碑旗标；回放时节点平移、连线形变、进度条增长、曲线延伸、元素淡入淡出；回放中可继续点进子页面 |
 
 ## 快速使用
@@ -87,7 +87,7 @@ flowchart LR
 import sb   # 本目录加入 sys.path，或直接拷贝 sb.py + sbstore.py
 
 sb.define("pipelines", "main", "main.json")        # 写 Pipeline 结构图（字段见 skills/status-board/references/schema.md）
-sb.define("datasets", "main", "data.json")         # 写数据管理图
+sb.define("datasets", "main", "data.json")         # 写数据管理图（数据多时用 groups 分组、节点写 brief）
 sb.task("train1", kind="train", name="微调", pipeline="main", node="train",
         model={"name": "base-7b"}, datasets=[{"name": "训练集", "ref": "main/clean", "role": "训练集"}],
         status="running", done=10, total=1000, unit="step")
@@ -127,6 +127,7 @@ sb.define("reviews", "r1", {                      # 声明校验集（字段与�
 ```
 
 - 规则是**声明式 op**（非空、长度、包含、取值范围、字段相等、不重复、文件存在……），没有正则和表达式，不会执行配置里的任何代码。
+一行里可以带图片 / 音视频（字段 `type` 写 `image` / `video` / `audio`），像浏览站那样直接在校验台里播；大文件已经在共享盘上时用 `--asset-root 别名=路径` 登记成只读根，不用复制。
 - 大文件在后台线程扫描，页面先显示「正在扫描」；每行只记录失败的规则号，几十万行也不占多少内存。
 - 人工标记存在 `state/marks/`，记录当时那一行的内容哈希：源文件改动后会提示「标记可能过期」。时间线里只记汇总数，不带逐条明细。
 
@@ -260,9 +261,35 @@ python3 server.py --state-dir examples/.play/all --port 8766
 - 写接口要求 `Content-Type: application/json`，带 `Origin` 时必须与 `Host` 一致（防跨站）；设置了 `SB_TOKEN` 则需 `Authorization: Bearer`。对外监听且未设 `SB_TOKEN` 时写接口整体关闭，页面也不返回数据真实路径。
 - 写入字段白名单 + 长度/类型/数量校验；定义文件限制嵌套深度与大小。
 - 资源目录（`/assets/`）只服务白名单扩展名的图片/音视频，解析真实路径后必须仍在资源目录内（防 `..`、软链逃逸）；`.jsonl` 只能通过 `samples` 块或成果校验读取，且校验集的 `source` 在**定义阶段**就会拒绝越界路径和软链。
-- 成果校验的规则不支持正则（避免 ReDoS）；单次最多写 500 条标记；单行超过 200KB 跳过；扫描有行数与耗时上限。
+- 成果校验的规则不支持正则（避免 ReDoS）；单次最多写 500 条标记；单行超过上限跳过（默认 200KB，`SB_REVIEW_LINE_MAX` 可调）；扫描有行数与耗时上限。
 - 资源管理：密钥只登记来源、从不读取内容；多层防泄露（见上）；本机探测只执行固定参数的 `nvidia-smi` 与只读系统调用；对外监听时不返回 `host / path / endpoint / access` 与密钥文件路径。
 - 页面所有文本经 `textContent` 渲染，不使用 `innerHTML`；令牌只走环境变量。
+
+## 论文用的图：热力图与状态流转图
+
+模块里可以放 `heatmap`（转移矩阵之类的热力图，多张矩阵切标签页）和 `flow`（状态流转图，线粗 = 概率）。两者都是自带样式的 SVG，
+页面上直接点「下载 SVG / PNG」就能拿到可放进论文的图。字段见 `skills/status-board/references/schema.md` §7。
+
+## 视频图库（成果校验的一种视图）
+
+成果是一行一条视频时，给校验集加 `gallery` 块，页面变成图库：8 格矩阵、风格分布、筛选 / 排序 / 搜索、卡片网格、详情抽屉（播放器 + 时间轴 + 提问 + 题目答案 + 动作与段信息），
+并且每条都能标合格 / 不合格 / 存疑。视频和 jsonl 留在共享盘，用 `--asset-root` 登记，不复制。字段约定与参数见 `skills/status-board/references/schema.md` §7b-3。
+
+```bash
+python3 server.py --asset-root releases=/共享盘/path/runs        # 视频评测行常有几百 KB：再设 SB_REVIEW_LINE_MAX=2000000
+```
+
+## 测试
+
+```bash
+python3 tests/test_status_board.py    # 存储层、体检、分面与矩阵、资源根、视频图库的接口
+python3 tests/test_asset_roots_http.py  # 起真实服务验证额外资源根（播放、Range、越界、软链逃逸）
+node tests/test_static.mjs            # 前端渲染回归（需要 Node 18+，没有就跳过）
+node tests/e2e_gallery.mjs <服务地址> <校验集id>   # 图库端到端：jsdom 加载真实页面和脚本，对着真实服务点一遍（需要 npm i jsdom）
+```
+
+`tests/test_static.mjs` 把 `util.js` / `store.js` 换成最小桩后直接跑 `drawGraph`。改了 `static/*.js` 请跑一次：
+ES 模块写错（例如 `const` 先用后声明）只有打开页面才会暴露，这个用例能在提交前抓到。
 
 ## 目录
 

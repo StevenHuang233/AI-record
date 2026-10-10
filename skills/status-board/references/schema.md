@@ -29,8 +29,10 @@
 ```json
 {
   "title": "...", "description": "...",
+  "groups": [{"id": "raw", "name": "原始", "desc": "分组说明", "nodes": ["raw1", "raw2"]}],
   "nodes": [{
-    "id": "raw", "name": "原始语料", "kind": "raw", "status": "ready",
+    "id": "raw", "name": "原始语料", "kind": "raw", "status": "ready", "group": "raw",  // 顶层可选 layout: "list"
+    "brief": "一句话说明这份数据是什么、有多少（显示在结构图节点上）",
     "desc": "含义：这份数据是什么",
     "source": "来源：从哪来、什么时候、谁给的",
     "purpose": "用处：拿来做什么，有什么限制（如严禁混入训练）",
@@ -46,6 +48,13 @@
 ```
 
 - `kind`：`raw processed derived external model`；`status`：`ready building stale missing failed`。
+- **`groups`（和 Pipeline 同格式，可选）**：`[{"id","name","desc","nodes"}]`。数据多的时候用它分类（例如「原始 / 中间产物 / 发布版本」），
+  结构图上按分组框起来并画分组图例，节点详情里也会显示所属分组。`nodes` 必须写节点 id 列表；不属于任何分组的节点照常显示。
+  分组只是显示用的归类，**不参与布局分层**（分层仍由 `edges` 决定）。
+- **`brief`（推荐）**：一句话说明这份数据是什么、有多少，直接显示在结构图节点上和资产清单里；`desc` 仍是完整说明「含义」。缺 `brief` 会报体检警告。
+- **`layout`（可选）**：`"graph"`（默认）画成关系图；`"list"` 不画图，改成**按 `groups` 分组的模块化清单**——一组一块，块里是表格，
+  表头带一句话说明。数据几十份时关系图会挤成一团，用 `"list"` 更清楚。页面上随时可以切换，这个字段只是决定默认用哪种。
+  用了 `"list"` 却没写 `groups` 时，全部资产归到「未分组」一块。
 - **地址是核心**：`locations` 每条必须有 `path`；`role`：`primary backup mirror remote cache`。**有双地址/多副本就写多条**。
 - `auto_stat: true`（在某条 location 上，路径须是**服务所在机器**可访问的绝对路径）：后台统计实际大小与文件数，缓存 5 分钟；主地址不存在则节点置 `missing`；≥2 个地址都统计完成时自动比对大小+文件数，显示「副本一致 / 不一致」。
 - `processing` 可写字符串列表，或 `{"step":"清洗","desc":"…","to":"clean"}`。页面还会自动合并「图上的入边/出边」和「Pipeline 里 reads/writes 它的步骤」，所以只需补充图和 Pipeline 表达不了的内容。
@@ -119,6 +128,18 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 | `samples` | `source`（资源目录内 `.jsonl`）, `skip`, `limit`(≤50), `fields:[{label,key,type}]`；`key` 支持 `a.b`；`type`: `long image audio video` |
 | `compare` | `items:[{title, sides:[{label, text/image/video/audio}]}]`，并排对比 |
 | `progress` | `items:[{label,value(0-1),note}]` |
+| `heatmap` | 转移矩阵 / 相关矩阵一类的热力图：`rows:[{label}]`, `cols:[{label}]`, `matrices:[{id,name,values,counts?,row_totals?,n_dialogues?,n_rows?}]`（每张矩阵一个标签页）；可选 `title` `caption` `vmax`（色条上限，默认取矩阵最大值）`digits`（小数位，默认 2）`hide_empty`（隐藏全零的行和列，默认 true） |
+| `flow` | 状态流转图：`nodes:[{id,label,col,row,tip?,fill?}]`（按列排，`row` 可以是小数）, `groups:[{id,label,nodes}]`（把几个节点框成一组，边可以连到分组）, `edges:[{from,to,w:{<矩阵id>:概率},note?,bend?,lt?}]`, `phases:[{col,label}]`（列标题）, `matrices:[{id,name}]`（标签页，和 `edges[].w` 的键对应）；可选 `threshold`（低于它的边不标数字） |
+
+**`heatmap` 与 `flow`（论文里常见的两张图）**：都画成**自带样式的 SVG**（颜色、字号写成属性，不依赖页面 CSS），
+块下面有「下载 SVG / 下载 PNG（2 倍分辨率）」，下载下来的图和页面上一致，可以直接放进论文。
+
+- `heatmap`：行列标签、格内数值、右侧色条（ColorBrewer Blues），颜色按矩阵里最大的值拉满；有 `counts` 时多一个「转移概率 / 次数」切换；
+  `matrices` 有多张时出标签页（例如 全部 / 理科 / 文科 / 各数据集）。`values` 是行 × 列的数值；全零的行和列默认隐藏，避免子集里出现整行整列空白。
+- `flow`：节点按 `col`（列）和 `row`（行）排；`groups` 画虚线框；`edges` 的 `w` 是**每张矩阵各一个概率**，线越粗概率越大；
+  概率为 0 的边画成灰色虚线（「规则允许、但当前数据里没有」）；顶部可调「只标出概率 ≥ …」。
+  一个端点上有多条边时落点会沿边框错开；`bend`（像素，负数向上）让长边绕开中间的框；`lt`（0–1）决定概率标签放在曲线的哪个位置。
+- 块的几何计算是纯函数（`heatmapModel` / `flowModel`），`tests/test_static.mjs` 在 Node 里直接测。
 
 资源目录默认 `state/assets/`（`SB_ASSETS_DIR` 可改）。`src`/`source` 是相对路径，禁止 `..`；图片/音视频支持 Range（可拖动播放）。`.jsonl` 不能被直接下载，只能通过 `samples` 读取（单行 >200KB 会被跳过）。
 
@@ -133,7 +154,8 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
   "kind": "model_output | cleaned_data | generic",
   "from": {"task": "任务id", "dataset": "数据图id/节点id", "model": "模型名", "note": "批次说明"},
   "source": "相对资源目录的路径.jsonl",
-  "page_size": 8,
+  "page_size": 8,   // 想放视频/图片：把文件放进资源目录，字段 type 写 video/image/audio
+                    // 注意软链指向资源目录以外会被当成越界拒绝（沙箱取真实路径），跨盘硬链也不行，得复制进来
   "fields": [
     {"label": "问题", "key": "question"},
     {"label": "回答", "key": "answer", "type": "long"},
@@ -165,6 +187,28 @@ sb.task("eval-v2", status="done", scores={"accuracy": 0.125, "作答率": 0.488}
 | `eq_field` `neq_field` | 与另一个字段相等 / 不等 | 另一个字段名 |
 | `unique` | 全文件内该字段不重复 | 否 |
 
+### 放视频 / 图片 / 音频
+
+行里的字段 `type` 写 `video` / `image` / `audio`，值是**相对路径**，页面上直接播（支持 Range，可拖动）。文件放哪有两种：
+
+1. **放进资源目录** `state/assets/`：适合小文件。
+2. **登记成额外只读资源根**：适合已经在共享盘上的大文件，**不用复制**。启动时登记：
+
+```bash
+python3 server.py --asset-root releases=/共享盘/path/runs --asset-root pics=/data/pics
+# 或 SB_ASSET_ROOTS="releases=/共享盘/path/runs:pics=/data/pics"
+```
+
+样本里写 `<别名>/<根内相对路径>`，例如 `releases/release_x_v2.0/videos/a.mp4`。
+
+- **为什么不能直接软链进 `state/assets/`**：资源解析先取目标的真实路径，再要求它落在资源根的真实路径下；
+  指向根外的软链会被当成越界拒绝（这是沙箱的设计，不能绕）。登记成根就是把「真实路径」所在目录也列入白名单。
+- 额外根**永远只读**：`sb.review_rows` 只能写主根，写到别名下会报错。
+- 只能在**启动时**登记，没有任何写接口能添加（否则有人能把 `/etc` 登记成根）。别名只允许字母数字 `_ . -`；
+  目录不存在或别名不合法的启动时打印警告并忽略。启动日志只列别名，不打印真实路径。
+- 越界规则对每个根都一样严：`..`、指向根外的软链一律拒绝；`/assets/` 仍只放行图片/音视频扩展名。
+- 校验集的 `source`（`.jsonl`）也可以放在额外根下，只读。
+
 `severity`：`error`（默认）/ `warn`（提示级）。字段不存在时，除 `notcontains`/`notequals`/`notin`/`neq_field` 外一律判不通过——**想表达"没有就算了"请先用 `exists` 单独成规则**。
 
 **人工标记**：页面里选中样本按 `1` 合格 / `2` 不合格 / `3` 存疑（再按一次取消），`J`/`K` 上下切换，`N` 写备注。脚本也可以标：
@@ -180,8 +224,67 @@ sb.mark("r1", 12, "fail", note="拒答", tags=["拒答"])       # line 从 1 开
 **注意**
 - `source` 只能是资源目录内的相对路径、以 `.jsonl` 结尾；`..`、绝对路径、指向目录外的软链都会被拒绝。
 - 规则扫描在后台线程进行，文件大时先显示「正在扫描」；超过 `SB_REVIEW_MAX_ROWS`（默认 30 万行）或 `SB_REVIEW_BUDGET`（默认 60 秒）则只扫描前面部分并标注。
-- 单行超过 200KB 会被跳过并计为"不是合法 JSON 对象"。
+- 单行超过上限（默认 200KB，`SB_REVIEW_LINE_MAX` 可调，单位字节）不会被解析，扫描里单独计成「超长行」（`scan.too_long`），页面上显示「该行超过上限，已跳过」。带每页动作轨迹的视频评测行常有几百 KB，要把整份都看全就把它调大，例如 `SB_REVIEW_LINE_MAX=2000000`。
 - 回放历史时不显示样本明细（读的是当前文件，和历史对不上），只显示当时的标记汇总。
+
+### 7b-2 分面筛选与矩阵 `facets` / `matrix`
+
+成果多的时候（几千到几十万行），只有「规则不通过 / 已标记」两种看法不够。可以声明分面，页面上按字段筛，
+再画一张两个分面交叉的矩阵（照旧浏览站「8 格分布」的看法：每格显示条数和指标中位数）。
+
+```json
+{
+  "facets": [{"id": "ds", "label": "数据集", "field": "数据集"},
+             {"id": "cell", "label": "格", "field": "cell"},
+             {"id": "turns", "label": "轮次", "field": "turns"}],
+  "matrix": {"rows": "cell", "cols": "turns", "metric": "时长秒"}
+}
+```
+
+- `facets`（≤6 项）：`id`、`label`、`field`（取值的字段，支持 `a.b`）。扫描时统计每个取值有多少条，
+  顶多记 40 个取值，其余归到「…其他」。取不到的行（没有这个字段）不计入分面。
+- `matrix.rows` / `cols`：必须是 `facets` 里声明过的 id；`metric` 是数值字段，每格显示它的**中位数**
+  （每格最多留 4096 个值，超了用均值近似，页面上标 `≈`）。
+- 页面上点取值按钮筛选，点矩阵格子 = 同时按行、列两个分面筛选，再点一次取消。
+  分面筛选和「视图 / 规则」是**并且**的关系。
+- **矩阵始终展示全量**（不随分面筛选收缩），这样筛掉一个格子后还能接着看别的格子；下面的样本列表才受筛选影响。
+- 分面的条数按「除这个分面外其他筛选都生效」计算，所以按钮上的数字不会因为选中它自己而全变成同一个值。
+
+### 7b-3 视频图库 `gallery`
+
+成果是「每行一条视频」（例如视频评测集的 `video_eval.jsonl`）时，加一个 `gallery` 块，校验台就换成图库视图：
+侧栏按数据集分组 → 8 格矩阵（条数 + 时长中位 / 范围）+ 风格分布 + 规则检查 → 筛选条（校验视图 / 页数 / 目标页 / 风格 / 排序 / 搜索）→ 卡片网格（缩略图、页数、提问次数、时长）
+→ 点卡片开详情抽屉（播放器、抽帧、拍摄参数、**时间轴**（动作块 / 页面可见区间 / 提问标记，点哪跳哪）、提问列表、题目与参考答案、计分题表、动作变化表、每页段信息）。
+每张卡和抽屉里都能标 合格 / 不合格 / 存疑（抽屉里按 `1` `2` `3`，`N` 写备注，`← →` 切换，`Esc` 关闭）。
+
+```json
+{
+  "title": "KnowShiftQA", "kind": "cleaned_data", "description": "怎样算合格……",
+  "source": "releases/release_knowshift_v2.0/video_eval.v4.jsonl",
+  "fields": [{"label": "指令", "key": "instruction"}],
+  "rules": [{"id": "has_ask", "field": "asks", "op": "minlen", "value": 1, "label": "至少 1 次提问"}],
+  "gallery": {
+    "group": "KnowShiftQA", "version": "v2.0", "badge": "最终版",
+    "media_map": {"anchor": "release_", "prefix": "releases/"}
+  }
+}
+```
+
+- **只写需要的**：不写的字段按默认映射（= `video_eval.v4.jsonl` 的结构）：`item_id` `images[]`（第 0 张当缩略图、全部当抽帧）`video` `instruction`（卡片标题）
+  `target.stem` / `题面`（题目）`gold_answer` `cell` `turns` `n_pages` `target_page` `asks[]`（`{turn,t,page,instruction}`）`page_windows[]`
+  `video_meta`（`duration fps width height style style_name optics seed render_version stages[][] segments[] transitions[] action_metrics[][]`）`scored[]`。
+  任何一项都能改：`"title": "question"`，或给候选列表 `"subtitle": ["target.stem", "题面"]`（第一个取得到值的生效）。
+  可改的键：`id thumb video frames title subtitle gold duration pages target_page asks windows cell turns style style_name data_source optics meta scored frame_pages`；
+  `cells` / `turn_names` 是矩阵的行列（默认四个格 × 单轮 / 多轮）；`group` `version` `badge` 用于侧栏。
+- **`media_map`**：行里的路径常常是生成它那台机器上的绝对路径。`anchor` = 找第一个以它开头的路径段，从那一段往后；`after` = 取第一次出现的它之后的部分；
+  `prefix` 加在前面（必须是相对前缀，不能以 `/` 开头、不能含 `..`）。**没映射上的绝对路径一律丢掉**（服务端不会放行，也不该把真实目录暴露给浏览器）。
+  映射只是字符串改写，真正的文件访问仍然走资源根的沙箱。
+- **文件放哪**：视频、抽帧、`.jsonl` 都可以留在共享盘上，用 `--asset-root 别名=路径` 登记成只读根（见上面「放视频 / 图片 / 音频」），不用复制。
+- **大文件**：扫描在后台线程里进行（同时最多 `SB_REVIEW_THREADS` 个，默认 2），整份文件的 8 格 / 风格 / 筛选 / 搜索 / 排序只用扫描时留下的每行一个小元组，翻页才去读那一页的原行。
+  23306 条（480MB）的集首次扫描约十几秒，之后走缓存。单行超过 `SB_REVIEW_LINE_MAX`（默认 200KB）的行不解析，侧栏和头部会写出「N 行超长未读」；
+  视频评测行常有几百 KB，要看全就调大，例如 `SB_REVIEW_LINE_MAX=2000000`。
+- 接口：`GET /api/review/<id>/gallery?cell=&turns=&pages=1|multi&target=known|unknown&style=&sort=dur_desc|dur_asc|asks&q=&view=&rule=&offset=&limit=`
+  和 `GET /api/review/<id>/item?line=N`；回放历史时同样不提供。
 
 ## 7c. 资源管理 `resources/<id>.json`
 

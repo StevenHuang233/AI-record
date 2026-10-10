@@ -11,6 +11,7 @@ import { orderedNodes, nodeSize } from "./graph.js";
 import { taskCard, pipelineCard, datasetCard, moduleCard, pipeNodeDetail, dataNodeDetail, hrefOf, exTag } from "./views.js";
 import { TL } from "./timeline.js";
 import { reviewWorkbench, enter as reviewEnter, leave as reviewLeave } from "./review.js";
+import { mountGallery, galleryLeave } from "./gallery.js";
 import { poolMini, poolPage, itemPage, resHref, resourceAttention, resourceTileSub, resourceCount, RES_KIND } from "./resources.js";
 
 const TASK_KINDS = ["train", "run", "eval", "job"];
@@ -18,13 +19,15 @@ const LISTS = { train: "训练", run: "流水线执行", eval: "评测", job: "�
 const REVIEW_KIND = { model_output: "模型生成结果", cleaned_data: "清洗后的数据", generic: "成果" };
 
 export function parseRoute(hash) {
-  const raw = (hash || "").replace(/^#\/?/, "");
+  const full = (hash || "").replace(/^#\/?/, "");
+  const qi = full.indexOf("?");
+  const raw = qi < 0 ? full : full.slice(0, qi);           // #/review/<id>?line=12：问号后面是页面内的状态，不是路由
   const seg = raw ? raw.split("/").map((x) => { try { return decodeURIComponent(x); } catch (e) { return x; } }) : [];
   const [a, b, c] = seg;
   if (!a) return { page: "home", key: "home" };
   if (TASK_KINDS.includes(a) && !b) return { page: "tasks", kind: a, key: a };
   if (a === "task" && b) return { page: "task", id: b, key: `task/${b}` };
-  if (a === "review") return b ? { page: "review", id: b, key: `review/${b}` } : { page: "reviews", key: "review" };
+  if (a === "review") return b ? { page: "review", id: b, key: `review/${b}`, query: qi < 0 ? "" : full.slice(qi + 1) } : { page: "reviews", key: "review" };
   if (a === "resources") {
     if (!b) return { page: "reslist", key: "resources" };
     return c ? { page: "resitem", gid: b, iid: c, key: `resources/${b}/${c}` } : { page: "respool", id: b, key: `resources/${b}` };
@@ -300,10 +303,20 @@ function reviewsPage(r) {
       : h("div", { class: "empty" }, "暂无校验集。用 sb.define 写入：", " ", h("code", {}, "python3 sb.py define reviews <id> file.json")));
 }
 
+function galleryPage(r, d) {
+  reviewLeave();
+  const line = parseInt(new URLSearchParams(r.query || "").get("line") || "", 10) || null;
+  queueMicrotask(() => { const el = document.getElementById("gal-root"); if (el) mountGallery(el, d.id, line); });
+  return pageShell(r, [["首页", "#/"], [LISTS.review, "#/review"], [d.title || d.id, null]],
+    h("div", { class: "gal", id: "gal-root", "data-key": "gal-root", "data-static": "1" }));
+}
+
 function reviewPage(r) {
   const d = (S.state.reviews || []).find((x) => x.id === r.id);
-  if (!d) { reviewLeave(); return notFound(r, `校验集「${r.id}」`); }
-  if (d.error) return pageShell(r, [["首页", "#/"], [LISTS.review, "#/review"], [d.id, null]], h("div", { class: "card err" }, d.error));
+  if (!d) { reviewLeave(); galleryLeave(); return notFound(r, `校验集「${r.id}」`); }
+  if (d.error) { galleryLeave(); return pageShell(r, [["首页", "#/"], [LISTS.review, "#/review"], [d.id, null]], h("div", { class: "card err" }, d.error)); }
+  if (d.gallery && S.state.live) return galleryPage(r, d);       // 回放历史时样本对不上，仍然只显示汇总
+  galleryLeave();
   const live = S.state.live;
   const meta = [];
   const f = d.from || {};
@@ -364,7 +377,7 @@ function resitemPage(r) {
 }
 
 export function renderPage(r) {
-  if (r.page !== "review") reviewLeave();
+  if (r.page !== "review") { reviewLeave(); galleryLeave(); }
   try {
     switch (r.page) {
       case "reslist": return reslistPage(r);

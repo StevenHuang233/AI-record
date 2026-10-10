@@ -4,7 +4,7 @@
     python3 server.py                                  # 127.0.0.1:8765
     python3 server.py --host 0.0.0.0 --port 8765       # 对外监听前必须先设置 SB_TOKEN，否则写接口自动关闭
 
-环境变量: SB_STATE_DIR 状态目录 | SB_TOKEN 写接口令牌 | SB_ALLOWED_HOSTS 额外允许的 Host(逗号分隔)
+环境变量: SB_STATE_DIR 状态目录 | SB_TOKEN 写接口令牌 | SB_ALLOWED_HOSTS 额外允许的 Host(逗号分隔) | SB_ASSET_ROOTS 额外只读资源根（别名=路径:别名=路径）
           SB_ASSETS_DIR 展示模块可引用的资源目录 | SB_SHOW_PATHS=1 对外监听时也向浏览器返回数据真实路径
 """
 from __future__ import annotations
@@ -376,6 +376,9 @@ def _derive_review(r: dict, marks_obj, live: bool):
     if not CONFIG["show_paths"]:
         r.pop("source", None)                          # 资源目录相对路径也不对外暴露
     r["fields"] = [{k: v for k, v in f.items() if k in ("label", "key", "type", "a", "b")} for f in r.get("fields", []) if isinstance(f, dict)]
+    if isinstance(r.get("gallery"), dict):             # 状态里只带侧栏要用的分组信息；字段映射留在服务端
+        g = r["gallery"]
+        r["gallery"] = {k: g.get(k) for k in ("group", "version", "badge") if g.get(k)} or {"group": None}
 
 
 def build_state(raw: dict, now: float, live: bool = True) -> dict:
@@ -445,6 +448,7 @@ ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules|reviews|res
 ROUTE_RES = re.compile(r"^/api/resources/([^/]+)/([^/]+)$")
 ROUTE_REVIEW = re.compile(r"^/api/review/([^/]+)$")
 ROUTE_MARKS = re.compile(r"^/api/review/([^/]+)/marks$")
+ROUTE_GALLERY = re.compile(r"^/api/review/([^/]+)/(gallery|item)$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -577,6 +581,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"n": n, "base": base, "reset": base > since and since > 0,
                                         "events": [store.public_event(i, evs[i]) for i in range(base, n)
                                                    if evs[i].get("type") != "noop"]})
+            m = ROUTE_GALLERY.match(path)
+            if m:
+                return self._review_gallery(m.group(1), m.group(2), {k: v[0] for k, v in q.items()})
             m = ROUTE_REVIEW.match(path)
             if m:
                 return self._review_page(m.group(1), {k: v[0] for k, v in q.items()})
@@ -600,6 +607,28 @@ class Handler(BaseHTTPRequestHandler):
         if "error" in res:
             return self._json(404, res)
         return self._json(200, res)
+
+    def _review_gallery(self, rid: str, what: str, q: dict):
+        """图库视图：gallery = 一页卡片 + 8 格统计；item = 一条的完整详情。回放历史时同样不提供。"""
+        store.check_id(rid)
+        d = store.read_json(store.item_path("reviews", rid), None)
+        if not isinstance(d, dict):
+            return self._json(404, {"error": f"校验集 {rid} 不存在"})
+        try:
+            store.clean_definition("reviews", d)
+        except ValueError as e:
+            return self._json(400, {"error": f"校验集定义无效: {e}"})
+        if what == "item":
+            try:
+                line = int(q.get("line") or 0)
+            except ValueError:
+                return self._json(400, {"error": "line 必须是整数"})
+            if not 1 <= line <= 50_000_000:
+                return self._json(400, {"error": "line 必须是 >= 1 的整数"})
+            res = review.gallery_item(rid, d, line)
+        else:
+            res = review.gallery_page(rid, d, q)
+        return self._json(404 if "error" in res else 200, res)
 
     def do_POST(self):
         if not self._write_allowed():
@@ -665,9 +694,13 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--state-dir", help="状态目录（默认 ./state）")
+    ap.add_argument("--asset-root", action="append", default=[], metavar="别名=/绝对路径",
+                    help="额外的只读资源根（可重复）：视频/图片留在原地不用复制，样本里写 <别名>/<相对路径>")
     a = ap.parse_args()
     if a.state_dir:
         os.environ["SB_STATE_DIR"] = a.state_dir
+    if a.asset_root:       # 和环境变量 SB_ASSET_ROOTS 合并（命令行在前）；只在启动时登记，没有任何接口能添加
+        os.environ["SB_ASSET_ROOTS"] = ":".join(a.asset_root + [os.environ.get("SB_ASSET_ROOTS", "")]).strip(":")
     store.ensure_dirs()
     mimetypes.init()
     CONFIG["token"] = os.environ.get("SB_TOKEN", "")
@@ -675,13 +708,18 @@ def main():
     CONFIG["writable"] = CONFIG["loopback"] or bool(CONFIG["token"])
     CONFIG["show_paths"] = CONFIG["loopback"] or os.environ.get("SB_SHOW_PATHS") == "1"
     CONFIG["allowed_hosts"] |= {h.strip().lower() for h in os.environ.get("SB_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    for item in (os.environ.get("SB_ASSET_ROOTS") or "").split(":"):        # 登记了但目录不存在的，启动时就说出来
+        name = item.split("=", 1)[0].strip()
+        if "=" in item and name and name not in store.asset_roots():
+            print(f"警告：额外资源根「{name}」无效（别名不合法或目录不存在），已忽略", flush=True)
     store.sync_files()
     threading.Thread(target=_sync_loop, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
     print(f"status_board: http://{a.host}:{a.port}  状态目录={store.state_dir()}  "
           f"写接口={'开启' if CONFIG['writable'] else '关闭（对外监听需设 SB_TOKEN）'}"
-          f"{'，需令牌' if CONFIG['token'] else ''}  路径显示={'是' if CONFIG['show_paths'] else '否'}", flush=True)
+          f"{'，需令牌' if CONFIG['token'] else ''}  路径显示={'是' if CONFIG['show_paths'] else '否'}"
+          f"{'  额外只读资源根=' + ','.join(sorted(store.asset_roots())) if store.asset_roots() else ''}", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

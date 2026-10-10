@@ -85,21 +85,60 @@ def assets_dir() -> str:
     return os.path.realpath(os.environ.get("SB_ASSETS_DIR") or os.path.join(state_dir(), "assets"))
 
 
-def resolve_asset(rel):
-    """把相对路径解析到资源目录内；越界（.. / 软链指向外部）一律返回 None。"""
+def asset_roots() -> dict:
+    """额外的只读资源根：环境变量 SB_ASSET_ROOTS=别名=/绝对路径:别名=/绝对路径。
+
+    为什么要有：视频、图片这类大文件常常已经在共享盘上，复制一份进 state/assets/ 既占本机磁盘又跟不上更新；
+    软链又行不通（资源解析取真实路径，指向根外的软链一律当越界拒绝）。登记成「根」就能直接读，文件留在原地。
+
+    约束：
+      - 只能在启动时通过环境变量登记；没有任何接口能添加（否则有人能把 /etc 登记成根）。
+      - 别名只允许字母数字 _ . -，不能和主根下的第一级目录重名（见 resolve_asset 的优先级）。
+      - 路径必须是存在的目录；不存在的会被忽略（并在体检里提示）。
+      - 额外根永远只读：写入（sb.review_rows）只认主根。
+    """
+    out = {}
+    for item in (os.environ.get("SB_ASSET_ROOTS") or "").split(":"):
+        if "=" not in item:
+            continue
+        name, path = item.split("=", 1)
+        name = name.strip()
+        if not ID_RE.match(name) or not path.strip():
+            continue
+        real = os.path.realpath(path.strip())
+        if os.path.isdir(real):
+            out[name] = real
+    return out
+
+
+def _inside(root: str, full: str) -> bool:
+    try:
+        return os.path.commonpath([root, full]) == root
+    except ValueError:
+        return False
+
+
+def resolve_asset(rel, writable=False):
+    """把相对路径解析到资源目录内；越界（.. / 软链指向外部）一律返回 None。
+
+    读：先看第一段是不是额外根的别名（SB_ASSET_ROOTS），是就在那个根里解析；否则在主根（state/assets）里解析。
+    写（writable=True）：只认主根，额外根一律返回 None。
+    不论哪个根，都是「先取目标真实路径，再要求它落在这个根的真实路径下」。"""
     if not isinstance(rel, str) or not rel or len(rel) > 400 or "\x00" in rel or "\\" in rel:
         return None
     parts = rel.split("/")
     if any(p in ("", ".", "..") for p in parts):
         return None
+    extra = asset_roots()
+    if len(parts) > 1 and parts[0] in extra:
+        if writable:
+            return None
+        root = extra[parts[0]]
+        full = os.path.realpath(os.path.join(root, *parts[1:]))
+        return full if _inside(root, full) else None
     root = assets_dir()
     full = os.path.realpath(os.path.join(root, *parts))
-    try:
-        if os.path.commonpath([root, full]) != root:
-            return None
-    except ValueError:
-        return None
-    return full
+    return full if _inside(root, full) else None
 
 
 @contextlib.contextmanager
@@ -418,6 +457,38 @@ def clean_json(v, depth=0):
     raise ValueError("不支持的 JSON 类型")
 
 
+GALLERY_KEYS = ("id", "thumb", "video", "frames", "title", "subtitle", "gold", "duration", "pages", "target_page", "asks",
+                "windows", "cell", "turns", "style", "style_name", "data_source", "optics", "meta", "scored", "frame_pages")
+GALLERY_EXTRA = ("media_map", "group", "version", "badge", "cells", "turn_names")
+
+
+def _check_gallery(g) -> None:
+    """图库视图的映射：只允许已知键；字段路径是字符串（或候选列表），媒体路径改写只做字符串替换。"""
+    if g is None:
+        return
+    if not isinstance(g, dict):
+        raise ValueError("gallery 必须是对象")
+    for k, v in g.items():
+        if k not in GALLERY_KEYS + GALLERY_EXTRA:
+            raise ValueError(f"gallery 不支持的字段: {k}")
+        if k in GALLERY_KEYS:
+            ok = (isinstance(v, str) and 0 < len(v) <= 80) or (
+                isinstance(v, list) and 0 < len(v) <= 4 and all(isinstance(x, str) and 0 < len(x) <= 80 for x in v))
+            if not ok:
+                raise ValueError(f"gallery.{k} 必须是字段路径（字符串，或最多 4 个候选路径的列表）")
+        elif k == "media_map":
+            if not isinstance(v, dict) or any(m not in ("anchor", "after", "prefix") or not isinstance(x, str) or len(x) > 200
+                                              for m, x in v.items()):
+                raise ValueError("gallery.media_map 只能有 anchor / after / prefix（字符串）")
+            if "/" in (v.get("prefix") or "")[:1] or ".." in (v.get("prefix") or ""):
+                raise ValueError("gallery.media_map.prefix 必须是相对路径前缀（不能以 / 开头，不能含 ..）")
+        elif k in ("cells", "turn_names"):
+            if not isinstance(v, list) or not 0 < len(v) <= 8 or any(not isinstance(x, str) or len(x) > 20 for x in v):
+                raise ValueError(f"gallery.{k} 必须是 1~8 个短字符串的列表")
+        elif not isinstance(v, str) or len(v) > 80:
+            raise ValueError(f"gallery.{k} 必须是不超过 80 字的字符串")
+
+
 def _check_review(obj: dict) -> None:
     """成果校验集定义：source 必须是资源目录内的 .jsonl；规则用声明式 op（不支持正则，避免 ReDoS）。"""
     src = obj.get("source")
@@ -442,6 +513,28 @@ def _check_review(obj: dict) -> None:
         for k in keys:
             if not isinstance(f.get(k), str) or not f[k] or len(f[k]) > 80:
                 raise ValueError(f"fields 里 type={t} 的项必须有字符串字段 {k}")
+    _check_gallery(obj.get("gallery"))
+    facets = obj.get("facets", [])
+    if not isinstance(facets, list) or len(facets) > 6:
+        raise ValueError("facets 必须是不超过 6 项的列表（每项 {id, label, field}）")
+    fids = set()
+    for f in facets:
+        if not isinstance(f, dict):
+            raise ValueError("facets 每项必须是对象")
+        check_id(f.get("id"))
+        if f["id"] in fids:
+            raise ValueError(f"分面 id 重复: {f['id']}")
+        fids.add(f["id"])
+        if not isinstance(f.get("field"), str) or not f["field"] or len(f["field"]) > 80:
+            raise ValueError(f"分面 {f['id']} 必须有字符串 field")
+    matrix = obj.get("matrix")
+    if matrix is not None:
+        if not isinstance(matrix, dict):
+            raise ValueError("matrix 必须是对象")
+        if matrix.get("rows") not in fids or matrix.get("cols") not in fids:
+            raise ValueError("matrix 的 rows / cols 必须是 facets 里声明过的分面 id")
+        if matrix.get("metric") is not None and (not isinstance(matrix["metric"], str) or len(matrix["metric"]) > 80):
+            raise ValueError("matrix.metric 必须是字符串字段名")
     rules = obj.get("rules", [])
     if not isinstance(rules, list) or len(rules) > 30:
         raise ValueError("rules 必须是不超过 30 条的列表")
@@ -677,6 +770,9 @@ def clean_definition(coll: str, obj) -> dict:
         for e in edges:
             if not isinstance(e, dict) or e.get("from") not in ids or e.get("to") not in ids:
                 raise ValueError(f"边引用了不存在的节点: {e}")
+        layout = obj.get("layout")
+        if layout is not None and layout not in ("graph", "list"):
+            raise ValueError('layout 只能是 "graph"（关系图）或 "list"（按分组的模块化清单）')
         groups = obj.get("groups", [])
         if not isinstance(groups, list):
             raise ValueError("groups 必须是列表")
@@ -1221,6 +1317,11 @@ def lint(ignore_example: bool = False) -> list:
                         if not ref_ok("datasets", r):
                             add("warn", f"{nt}: reads/writes 引用的数据节点不存在: {r}")
                 else:
+                    if not n.get("brief"):
+                        grp = next((x.get("name") for x in (g.get("groups") or [])
+                                    if n["id"] in (x.get("nodes") or [])), None)
+                        add("warn", f"{nt}: 缺少 brief（一句话说明这份数据是什么 / 有多少，会直接显示在结构图节点上"
+                                    f"{'、分组「' + grp + '」里' if grp else ''}）")
                     locs = n.get("locations")
                     if not isinstance(locs, list) or not locs:
                         add("warn", f"{nt}: 缺少 locations（数据存放地址；有备份要写多个）")

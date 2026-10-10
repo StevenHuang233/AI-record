@@ -5,7 +5,8 @@ import { h, patch, onAction, fmtTime } from "./util.js";
 import { S } from "./store.js";
 import { parseRoute, navKeyOf, renderPage } from "./pages.js";
 import { TL, mount, setEvents } from "./timeline.js";
-import { setOnChange, setView, setRule, gotoPage, mark, RV } from "./review.js";
+import { setOnChange, setView, setRule, gotoPage, mark, setFacet, clearFacets, fetchPage, RV } from "./review.js";
+import { downloadBlock } from "./transition.js";
 
 const POLL_MS = 2500;
 const NAV = [["home", "首页", "#/"], ["train", "训练", "#/train"], ["run", "流水线执行", "#/run"], ["eval", "评测", "#/eval"],
@@ -71,6 +72,12 @@ async function pullTimeline() {
 }
 
 onAction("selnode", (key, id) => { S.sel[key] = id; render(); });
+/* 数据图：在「分组清单」和「关系图」之间切换（记住每张图的选择） */
+onAction("dsview", (key, mode) => { S.sel[`${key}#view`] = mode; render(); });
+/* 模块里的热力图 / 流转图：切标签页、切选项、下载 */
+onAction("bltab", (key, id) => { S.sel[`${key}#tab`] = id; render(); });
+onAction("blopt", (k, v) => { S.sel[k] = /^[\d.]+$/.test(v) ? Number(v) : v; render(); });
+onAction("bldl", (key, fmt) => downloadBlock(key, fmt));
 /* 成果校验工作台的交互 */
 onAction("rvview", (k) => setView(k));
 onAction("rvrule", (id) => setRule(id));
@@ -80,6 +87,16 @@ onAction("rvsel", (line, _a2, el, e) => {
   RV.sel = parseInt(line, 10); render();
 });
 onAction("rvmark", (line, v, _el, e) => { e.stopPropagation(); RV.sel = parseInt(line, 10); mark(parseInt(line, 10), v); });
+onAction("rvfacet", (id, v) => setFacet(id, v === "" ? "" : v));
+onAction("rvclearf", () => clearFacets());
+onAction("rvcell", (rowVal, colVal) => {           // 点矩阵格子：同时筛行分面和列分面
+  const m = RV.data && RV.data.matrix;
+  if (!m) return;
+  const same = RV.picked[m.rows_id] === rowVal && RV.picked[m.cols_id] === colVal;
+  RV.picked = {};
+  if (!same) { RV.picked[m.rows_id] = rowVal; RV.picked[m.cols_id] = colVal; }
+  RV.page = 0; RV.sel = null; fetchPage();
+});
 onAction("rvnote", (line, _a2, _el, e) => {
   e.stopPropagation();
   const ln = parseInt(line, 10), it = RV.data && RV.data.items.find((x) => x.line === ln);
