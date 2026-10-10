@@ -238,6 +238,72 @@ class ReviewPageTests(_StateCase):
         self.assertEqual(out["selected"], 3)
 
 
+class AssetRootTests(_StateCase):
+    """额外只读资源根（SB_ASSET_ROOTS）：视频留在共享盘，不用复制进 state/assets。"""
+    def setUp(self):
+        super().setUp()
+        self.ext = tempfile.mkdtemp(prefix="sb-ext-")
+        self.secret = tempfile.mkdtemp(prefix="sb-secret-")
+        os.makedirs(os.path.join(self.ext, "videos"), exist_ok=True)
+        with open(os.path.join(self.ext, "videos", "a.mp4"), "wb") as f:
+            f.write(b"x")
+        with open(os.path.join(self.secret, "pw.txt"), "w") as f:
+            f.write("secret")
+        os.symlink(self.secret, os.path.join(self.ext, "escape"))              # 根里指向根外的软链
+        self._old_roots = os.environ.get("SB_ASSET_ROOTS")
+        os.environ["SB_ASSET_ROOTS"] = f"rel={self.ext}"
+
+    def tearDown(self):
+        if self._old_roots is None:
+            os.environ.pop("SB_ASSET_ROOTS", None)
+        else:
+            os.environ["SB_ASSET_ROOTS"] = self._old_roots
+        shutil.rmtree(self.ext, ignore_errors=True)
+        shutil.rmtree(self.secret, ignore_errors=True)
+        super().tearDown()
+
+    def test_extra_root_file_resolves_in_place(self):
+        got = sbstore.resolve_asset("rel/videos/a.mp4")
+        self.assertEqual(got, os.path.realpath(os.path.join(self.ext, "videos", "a.mp4")))
+
+    def test_dotdot_rejected(self):
+        self.assertIsNone(sbstore.resolve_asset("rel/../etc/passwd"))
+        self.assertIsNone(sbstore.resolve_asset("rel/videos/../../x"))
+
+    def test_symlink_escaping_extra_root_rejected(self):
+        self.assertIsNone(sbstore.resolve_asset("rel/escape/pw.txt"))
+
+    def test_extra_root_is_read_only(self):
+        self.assertIsNone(sbstore.resolve_asset("rel/videos/a.mp4", writable=True))
+        self.assertIsNotNone(sbstore.resolve_asset("plain/x.jsonl", writable=True))     # 主根可写
+
+    def test_unknown_alias_falls_back_to_primary_root(self):
+        got = sbstore.resolve_asset("nope/a.mp4")
+        self.assertTrue(got.startswith(sbstore.assets_dir()))
+
+    def test_alias_alone_is_not_a_file(self):
+        """只写别名、没有子路径：落到主根（不会把整个外部根暴露成一个路径）。"""
+        got = sbstore.resolve_asset("rel")
+        self.assertTrue(got.startswith(sbstore.assets_dir()))
+
+    def test_bad_registrations_ignored(self):
+        os.environ["SB_ASSET_ROOTS"] = f"../bad={self.ext}:ok={self.ext}:missing=/no/such/dir:=/tmp:noeq"
+        self.assertEqual(sorted(sbstore.asset_roots()), ["ok"])
+
+    def test_review_rows_cannot_write_into_extra_root(self):
+        import sb
+        with self.assertRaises(ValueError):
+            sb.review_rows([{"a": 1}], "rel/out.jsonl")
+        self.assertFalse(os.path.exists(os.path.join(self.ext, "out.jsonl")))
+
+    def test_review_source_may_live_in_extra_root(self):
+        with open(os.path.join(self.ext, "s.jsonl"), "w", encoding="utf-8") as f:
+            f.write('{"a": 1}\n')
+        obj = {"title": "t", "description": "d", "kind": "cleaned_data", "source": "rel/s.jsonl",
+               "fields": [{"label": "a", "key": "a"}], "rules": []}
+        self.assertEqual(sbstore.clean_definition("reviews", obj)["source"], "rel/s.jsonl")
+
+
 class RoundTripTests(_StateCase):
     def test_dataset_groups_and_brief_survive_roundtrip(self):
         self._define("datasets", "g", graph([data_node("a", brief="一句话说明")],

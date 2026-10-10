@@ -112,9 +112,9 @@ def mark(review_id: str, line: int, verdict, note: str = "", tags=None) -> dict:
 def review_rows(rows, rel_path: str) -> int:
     """把一批成果（可迭代的 dict）写成资源目录里的 .jsonl，供 define("reviews", …) 的 source 使用；返回写入行数。
     只能在资源目录所在机器上调用；写到 <资源目录>/<rel_path>（必须以 .jsonl 结尾，不允许 ..）。"""
-    full = store.resolve_asset(rel_path)
+    full = store.resolve_asset(rel_path, writable=True)         # 写只认主根，额外只读根不行
     if not full or not rel_path.endswith(".jsonl"):
-        raise ValueError("rel_path 必须是资源目录内的相对路径，且以 .jsonl 结尾")
+        raise ValueError("rel_path 必须是资源目录内的相对路径，且以 .jsonl 结尾（额外只读根不能写）")
     os.makedirs(os.path.dirname(full), exist_ok=True)
     tmp, n = full + ".tmp", 0
     with open(tmp, "w", encoding="utf-8") as f:

@@ -85,21 +85,60 @@ def assets_dir() -> str:
     return os.path.realpath(os.environ.get("SB_ASSETS_DIR") or os.path.join(state_dir(), "assets"))
 
 
-def resolve_asset(rel):
-    """把相对路径解析到资源目录内；越界（.. / 软链指向外部）一律返回 None。"""
+def asset_roots() -> dict:
+    """额外的只读资源根：环境变量 SB_ASSET_ROOTS=别名=/绝对路径:别名=/绝对路径。
+
+    为什么要有：视频、图片这类大文件常常已经在共享盘上，复制一份进 state/assets/ 既占本机磁盘又跟不上更新；
+    软链又行不通（资源解析取真实路径，指向根外的软链一律当越界拒绝）。登记成「根」就能直接读，文件留在原地。
+
+    约束：
+      - 只能在启动时通过环境变量登记；没有任何接口能添加（否则有人能把 /etc 登记成根）。
+      - 别名只允许字母数字 _ . -，不能和主根下的第一级目录重名（见 resolve_asset 的优先级）。
+      - 路径必须是存在的目录；不存在的会被忽略（并在体检里提示）。
+      - 额外根永远只读：写入（sb.review_rows）只认主根。
+    """
+    out = {}
+    for item in (os.environ.get("SB_ASSET_ROOTS") or "").split(":"):
+        if "=" not in item:
+            continue
+        name, path = item.split("=", 1)
+        name = name.strip()
+        if not ID_RE.match(name) or not path.strip():
+            continue
+        real = os.path.realpath(path.strip())
+        if os.path.isdir(real):
+            out[name] = real
+    return out
+
+
+def _inside(root: str, full: str) -> bool:
+    try:
+        return os.path.commonpath([root, full]) == root
+    except ValueError:
+        return False
+
+
+def resolve_asset(rel, writable=False):
+    """把相对路径解析到资源目录内；越界（.. / 软链指向外部）一律返回 None。
+
+    读：先看第一段是不是额外根的别名（SB_ASSET_ROOTS），是就在那个根里解析；否则在主根（state/assets）里解析。
+    写（writable=True）：只认主根，额外根一律返回 None。
+    不论哪个根，都是「先取目标真实路径，再要求它落在这个根的真实路径下」。"""
     if not isinstance(rel, str) or not rel or len(rel) > 400 or "\x00" in rel or "\\" in rel:
         return None
     parts = rel.split("/")
     if any(p in ("", ".", "..") for p in parts):
         return None
+    extra = asset_roots()
+    if len(parts) > 1 and parts[0] in extra:
+        if writable:
+            return None
+        root = extra[parts[0]]
+        full = os.path.realpath(os.path.join(root, *parts[1:]))
+        return full if _inside(root, full) else None
     root = assets_dir()
     full = os.path.realpath(os.path.join(root, *parts))
-    try:
-        if os.path.commonpath([root, full]) != root:
-            return None
-    except ValueError:
-        return None
-    return full
+    return full if _inside(root, full) else None
 
 
 @contextlib.contextmanager

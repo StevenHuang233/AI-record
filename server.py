@@ -4,7 +4,7 @@
     python3 server.py                                  # 127.0.0.1:8765
     python3 server.py --host 0.0.0.0 --port 8765       # 对外监听前必须先设置 SB_TOKEN，否则写接口自动关闭
 
-环境变量: SB_STATE_DIR 状态目录 | SB_TOKEN 写接口令牌 | SB_ALLOWED_HOSTS 额外允许的 Host(逗号分隔)
+环境变量: SB_STATE_DIR 状态目录 | SB_TOKEN 写接口令牌 | SB_ALLOWED_HOSTS 额外允许的 Host(逗号分隔) | SB_ASSET_ROOTS 额外只读资源根（别名=路径:别名=路径）
           SB_ASSETS_DIR 展示模块可引用的资源目录 | SB_SHOW_PATHS=1 对外监听时也向浏览器返回数据真实路径
 """
 from __future__ import annotations
@@ -665,9 +665,13 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--state-dir", help="状态目录（默认 ./state）")
+    ap.add_argument("--asset-root", action="append", default=[], metavar="别名=/绝对路径",
+                    help="额外的只读资源根（可重复）：视频/图片留在原地不用复制，样本里写 <别名>/<相对路径>")
     a = ap.parse_args()
     if a.state_dir:
         os.environ["SB_STATE_DIR"] = a.state_dir
+    if a.asset_root:       # 和环境变量 SB_ASSET_ROOTS 合并（命令行在前）；只在启动时登记，没有任何接口能添加
+        os.environ["SB_ASSET_ROOTS"] = ":".join(a.asset_root + [os.environ.get("SB_ASSET_ROOTS", "")]).strip(":")
     store.ensure_dirs()
     mimetypes.init()
     CONFIG["token"] = os.environ.get("SB_TOKEN", "")
@@ -675,13 +679,18 @@ def main():
     CONFIG["writable"] = CONFIG["loopback"] or bool(CONFIG["token"])
     CONFIG["show_paths"] = CONFIG["loopback"] or os.environ.get("SB_SHOW_PATHS") == "1"
     CONFIG["allowed_hosts"] |= {h.strip().lower() for h in os.environ.get("SB_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    for item in (os.environ.get("SB_ASSET_ROOTS") or "").split(":"):        # 登记了但目录不存在的，启动时就说出来
+        name = item.split("=", 1)[0].strip()
+        if "=" in item and name and name not in store.asset_roots():
+            print(f"警告：额外资源根「{name}」无效（别名不合法或目录不存在），已忽略", flush=True)
     store.sync_files()
     threading.Thread(target=_sync_loop, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
     print(f"status_board: http://{a.host}:{a.port}  状态目录={store.state_dir()}  "
           f"写接口={'开启' if CONFIG['writable'] else '关闭（对外监听需设 SB_TOKEN）'}"
-          f"{'，需令牌' if CONFIG['token'] else ''}  路径显示={'是' if CONFIG['show_paths'] else '否'}", flush=True)
+          f"{'，需令牌' if CONFIG['token'] else ''}  路径显示={'是' if CONFIG['show_paths'] else '否'}"
+          f"{'  额外只读资源根=' + ','.join(sorted(store.asset_roots())) if store.asset_roots() else ''}", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
