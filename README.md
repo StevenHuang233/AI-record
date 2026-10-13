@@ -159,7 +159,7 @@ sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2
 
 ## 校验与展示的扩展能力
 
-这些功能来自真实使用（视频评测集的校验与展示），已全部合入 `main`。字段写法见 `skills/status-board/references/schema.md` 对应章节。
+这些功能来自真实使用中的校验与展示需求，已全部合入 `main`。字段写法见 `skills/status-board/references/schema.md` 对应章节。
 
 | 能力 | 怎么用 | 文档 |
 |---|---|---|
@@ -173,10 +173,19 @@ sb.resource("pool", "gpu", allocations=[{"label": "微调 v2", "task": "train-v2
 | 视频图库 | 校验集 `gallery` 块：8 格矩阵、风格分布、筛选 / 排序 / 搜索、详情抽屉（播放器 + 时间轴） | schema §7b-3 |
 | 额外只读资源根 | 启动参数 `--asset-root 别名=路径`（或 `SB_ASSET_ROOTS`），视频留在共享盘不复制 | schema §7b |
 | 热力图与状态流转图 | 展示模块块 `heatmap`、`flow`（含 `layout: "free"` 自由布局：环形 / 枢纽图），可下载 SVG / PNG；Pipeline 节点还可内嵌 `blocks` 在步骤详情里画图 | schema §7 |
-| Gander 评测脚本集 | 独立目录 `gander_eval_kit/`，不依赖看板代码，含 14 条环境踩坑 | `gander_eval_kit/README.md` |
 
 - 图库、校验页、首页三处的标记档位和键位保持一致（`1` 合理 / `2` 偏弱 / `3` 判错 / `4` 不确定）。
 - 同一个校验集可以同时配 `gallery`、`facets` / `matrix`、`group_by`，扫描只做一遍。
+
+## 归档
+
+某个成员不用了（旧的 Pipeline、跑废的任务、下线的资源池、过期的校验集）就归档——**不删数据**：
+
+- 列表页每张卡片上有「归档」。归档后它从列表里收走，进列表下方的「▸ 已归档 N 个」折叠文件夹（默认收起，和「历史版本」一样），点开文件夹，里面的卡片上是「取消归档」。
+- 归档的条目**不再计入首页汇总与「需要关注」**（失败、停滞、数据缺失都不再提醒），但条目还在、还能点开看，回放历史时也照常显示。
+- 脚本里：`sb.archive("pipelines", "old_flow")`；取消：`sb.archive("pipelines", "old_flow", False)`；不传第三个参数表示切换。
+- 命令行：`python3 sb.py archive <pipelines|datasets|modules|reviews|resources|tasks> <id> [--off|--toggle]`。
+- 本质就是定义 / 任务上的一个 `archived: true`，手改 JSON 也一样生效。
 
 ## 实践经验
 
@@ -225,20 +234,18 @@ ES 模块里的低级错误（例如 `const` 先用后声明）**只有打开页
 **8. 校验时人工标记的档位**
 人工标记是四档：合理（`pass`）、偏弱（`weak`）、判错（`fail`）、不确定（`doubt`）。`weak` 表示「不算错，但质量偏弱」，适合评测集质检里把边缘样本单独拎出来。`sb.mark` 和页面键位（`1`–`4`）都按这四档。
 
-**9. Gander 评测的环境踩坑**
-令牌格式、`transformers` 与 `deepspeed` 的循环导入、8B 全参训练 OOM、视觉塔与 Talker 模式冲突、HF 数据集 LFS 三步法、画面与音频走不同的 WebSocket 通道等 14 条，都和具体环境强相关，**不在这里重复**，见 `gander_eval_kit/README.md`（该目录不改看板代码，也不依赖看板）。
-
 ## 版本记录
 
-当前版本 **v1.0.4**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
+当前版本 **v1.0.5**。下表按主线历史归纳，`提交` 一列可用 `git show <提交>` 查看当时的状态。
 
 | 版本 | 提交 | 内容 |
 |---|---|---|
+| v1.0.5 | 本次 | 归档：各模块的成员（任务 / Pipeline / 数据图 / 展示模块 / 校验集 / 资源池）都能归档，收进「▸ 已归档 N 个」折叠文件夹、可取消归档；归档的不再计入首页汇总与「需要关注」；新增 `sb.archive`、`sb.py archive` 与接口 `POST /api/archive/<kind>/<id>`；清掉随某个项目带进来的评测脚本集 `gander_eval_kit/`（目录与相关文档条目） |
 | v1.0.4 | 本次 | 实时捕捉策略：任务带 `pid`，进程没了还写着运行中时几秒内标「进程已退出」（新增 `procs.py`，`sb.track` 默认带 pid，命令行 `--pid`）；单个文件的实测大小约 3 秒刷新、目录的 `refresh` 可按地址调；数据地址显示「统计于 N 前」；`patterns.md` P14 |
 | v1.0.3 | `7c17769` | 版本收纳推广到全站：Pipeline / 展示模块 / 校验集 / 任务 / 资源 / 视频图库侧栏，都用同一对 `family` + `version`；最新版由服务端统一计算（新增 `versions.py`），历史版本不计入异常 / 需要关注；新增 `versions` 范例；修复图库侧栏按字符串排版本号（`v1.9` 排在 `v1.10` 前）的问题 |
 | v1.0.2 | `73f4ba4` | 数据的多个版本：`family` + `version`，清单里收成「最新版 + 可展开的历史版本」；`ml-training` 范例演示 v1.0 / v2.0；4 条版本相关体检；`patterns.md` P8b |
 | v1.0.1 | `0171913` | 收纳按钮补全（任务卡、步骤详情、数据详情、资源管理页）；Pipeline 设计策略（`patterns.md` P0）与三条新体检规则（`name` / `role` 过长、`kind` 非法、节点重复入组）；修正范例里一个被截断的 `role` |
-| v1.0.0 | 整合版本 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图（含自由布局、Pipeline 步骤内嵌展示块）、额外只读资源根、Gander 评测脚本集、测试套件；README 增加用途、使用方法与实践经验 |
+| v1.0.0 | 整合版本 | 把使用中长出来的功能合入主线：数据分组 / `brief` / 清单布局、分面筛选与矩阵、两级分组浏览、四档人工标记（合理 / 偏弱 / 判错 / 不确定）、卡片收纳、视频图库、热力图与状态流转图（含自由布局、Pipeline 步骤内嵌展示块）、额外只读资源根、测试套件；README 增加用途、使用方法与实践经验 |
 | v0.6 | `939011c` | 资源管理：API Key（只登记来源、多层防泄露）、GPU / CPU / 磁盘 / 服务、本机探测、分配与健康判断；第六个范例 |
 | v0.5 | `e4f6575` | 成果校验：规则自动检查、人工逐条标记、键盘操作、`diff` 前后对比；第五个范例 |
 | v0.4 | `e7b50e5` | 四个形状各异的范例与播放器；防范例带偏的护栏（`_example` 标记、`/example/` 路径体检） |
@@ -320,6 +327,5 @@ procs.py     进程存活检查：任务带 pid 时发现「进程没了但任�
 state/       真实数据：board.json pipelines/ datasets/ modules/ reviews/ resources/ tasks/ marks/ usage/ assets/ timeline.jsonl（新 clone 为空）
 examples/    范例（虚构内容）+ play.py 播放器；播放结果写在 examples/.play/（已忽略）
 tests/       测试：test_status_board.py、test_asset_roots_http.py（纯 Python）、test_static.mjs、e2e_gallery.mjs（需要 Node）
-gander_eval_kit/   Gander 视频评测脚本集（独立，不依赖看板代码）
 skills/status-board/              给 AI 的使用说明（.codebuddy/skills/ 下有软链）
 ```

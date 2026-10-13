@@ -91,6 +91,7 @@ import sys; sys.path.insert(0, "<仓库根>"); import sb
 | 数据集展示、效果展示 | `sb.define("modules", id, {"blocks": […]})` | §7 |
 | 登记可调用的资源：API Key、GPU / CPU、磁盘、对内服务 | `sb.define("resources", id, {items:[…]})`（**密钥只写 secret_ref**）；动态信息 `sb.resource(池, 资源, used=…, allocations=[…])` | §7c、`patterns.md` P13 |
 | 逐条审阅一批成果（模型生成的结果、清洗出来的数据） | `sb.review_rows(rows, "x.jsonl")` + `sb.define("reviews", id, {source, fields, rules, from…})`；人工标记 `sb.mark(id, 行号, "pass/weak/fail/doubt")` | §7b、`patterns.md` P12 |
+| 某个成员不用了（旧流程、跑废的任务、下线的资源池） | 页面上点卡片上的「归档」，或 `sb.archive(coll, id)`（取消：传 `False` / `--off`）。它会被收进「▸ 已归档 N 个」文件夹，不再计入汇总与「需要关注」；**不删数据**，随时能取消归档 | schema 顶部 |
 
 ## 标准工作流
 
@@ -195,6 +196,7 @@ flowchart TD
 | 校验页要两级分组浏览 | 校验集 `group_by`（≤2 级，每级 `{key,label,catalog}`）、`summary`（≤4 个字段名） | `sbstore.py` 的 `_check_review`（schema 暂无专门章节） |
 | 一行一条视频的成果，要图库视图 | 校验集 `gallery` 块 | §7b-3 |
 | 论文用的转移矩阵热力图 / 状态流转图（环形 / 枢纽图用 `layout: "free"`） | 展示模块块 `heatmap`、`flow`；Pipeline 节点也可带 `blocks` 在步骤详情里内嵌图 | §7 |
+| 某个成员不用了，但不想删 | 定义 / 任务上 `"archived": true`（或页面上点「归档」、`sb.archive(coll, id)`）：收进「▸ 已归档 N 个」文件夹，不再计入汇总与「需要关注」，条目还在、还能点开 | schema 顶部 |
 
 - 人工标记是**四档**：`pass` 合理 / `weak` 偏弱 / `fail` 判错 / `doubt` 不确定。校验页和图库的键位一致：`1` `2` `3` `4`，`N` 写备注。
 - 同一个校验集可以同时配 `gallery`、`facets` / `matrix`、`group_by`。

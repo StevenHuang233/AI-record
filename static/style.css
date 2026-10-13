@@ -427,3 +427,15 @@ tr.vold { opacity: .86; }
 .vhist-list { display: flex; flex-direction: column; gap: 8px; margin-left: 14px; padding-left: 10px; border-left: 2px dashed var(--line); }
 .vhist-list .card { opacity: .88; }
 .fold.forced { opacity: .55; cursor: default; }
+
+/* 归档：卡片上的「归档 / 取消归档」按钮 + 收起归档成员的折叠文件夹 */
+.arch { border: 1px solid var(--line); background: var(--soft); color: var(--sub); border-radius: 6px; cursor: pointer;
+        font-size: 12px; line-height: 1; padding: 4px 8px; margin-left: auto; flex: none; }
+.arch:hover { color: var(--accent); border-color: var(--accent); }
+.arch[disabled], .arch[data-busy] { opacity: .5; cursor: default; }
+.page > .arch { margin: 0 0 10px; }
+.arch-box { margin-top: 12px; }
+.arch-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 12.5px; color: var(--sub);
+            background: var(--soft); border: 1px dashed var(--line); border-radius: 8px; padding: 6px 8px; }
+.arch-bar .vlabel { color: var(--text); }
+.arch-box .tasks { margin-top: 10px; }

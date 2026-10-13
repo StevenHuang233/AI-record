@@ -431,14 +431,18 @@ def build_state(raw: dict, now: float, live: bool = True) -> dict:
                     _clean_graph(g)
                     (_derive_pipeline if kind == "pipelines" else _derive_dataset)(g, *([tasks] if kind == "pipelines" else []))
             except Exception as e:  # noqa: BLE001  单个定义写坏不能拖垮整页
-                g = {"id": iid, "title": g.get("title") or iid, "error": f"渲染失败: {e.__class__.__name__}: {e}"}
+                g = {"id": iid, "title": g.get("title") or iid, "archived": bool(obj.get("archived")),
+                     "error": f"渲染失败: {e.__class__.__name__}: {e}"}
+            g["archived"] = bool(g.get("archived"))
             items.append(g)
         versions.annotate(items)                                         # Pipeline / 数据图 / 展示模块 / 校验集：同类里按 family 归组
         out[kind] = items
-    out["summary"] = {s: sum(1 for t in tasks if t["status"] == s) for s in store.TASK_STATUS}
-    out["summary"]["stale"] = sum(1 for t in tasks if t["stale"])
-    out["summary"]["dead"] = sum(1 for t in tasks if t.get("dead") and not versions.is_hist(t))
-    out["by_kind"] = {k: sum(1 for t in tasks if t.get("kind", "job") == k) for k in store.TASK_KINDS}
+    live = [t for t in tasks if not t.get("archived")]       # 归档的任务只是收起来，不算在运行 / 失败 / 需要关注里
+    out["summary"] = {s: sum(1 for t in live if t["status"] == s) for s in store.TASK_STATUS}
+    out["summary"]["stale"] = sum(1 for t in live if t["stale"])
+    out["summary"]["dead"] = sum(1 for t in live if t.get("dead") and not versions.is_hist(t))
+    out["summary"]["archived"] = len(tasks) - len(live)
+    out["by_kind"] = {k: sum(1 for t in live if t.get("kind", "job") == k) for k in store.TASK_KINDS}
     return out
 
 
@@ -465,6 +469,7 @@ ROUTE_NODE = re.compile(r"^/api/(pipelines|datasets)/([^/]+)/nodes/([^/]+)$")
 ROUTE_DEFINE = re.compile(r"^/api/define/(pipelines|datasets|modules|reviews|resources)/([^/]+)$")
 ROUTE_RES = re.compile(r"^/api/resources/([^/]+)/([^/]+)$")
 ROUTE_REVIEW = re.compile(r"^/api/review/([^/]+)$")
+ROUTE_ARCHIVE = re.compile(r"^/api/archive/(pipelines|datasets|modules|reviews|resources|tasks)/([^/]+)$")
 ROUTE_MARKS = re.compile(r"^/api/review/([^/]+)/marks$")
 ROUTE_GALLERY = re.compile(r"^/api/review/([^/]+)/(gallery|item)$")
 
@@ -666,6 +671,11 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 b = self._body()
                 return self._json(200, store.set_marks(m.group(1), b.get("marks") if isinstance(b, dict) else None))
+            m = ROUTE_ARCHIVE.match(path)
+            if m:
+                b = self._body()
+                return self._json(200, store.set_archived(m.group(1), m.group(2),
+                                                          b.get("archived") if isinstance(b, dict) else None))
             if path == "/api/milestone":
                 b = self._body()
                 return self._json(200, store.add_milestone(b.get("title", ""), b.get("note", ""), b.get("tags")))

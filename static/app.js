@@ -30,7 +30,8 @@ function render() {
         S.offline ? "连接中断，显示的是旧数据" : hist ? `历史回放 · ${fmtTime(st.now)}` : `实时 · 更新于 ${fmtTime(S.lastOk / 1000)}`)),
     h("nav", { class: "mainnav" }, NAV.map(([k, label, href]) => h("a", { href, class: k === active ? "on" : "", "data-key": "nav:" + k }, label))),
     h("div", { class: "chips" }, chip("运行中", sm.running, "running"), chip("排队", sm.queued, "queued"), chip("已完成", sm.done, "done"), chip("失败", sm.failed, "failed"), chip("疑似停滞", sm.stale, "stale"), chip("进程已退出", sm.dead || 0, "failed"),
-      chip("训练", bk.train, "plain"), chip("流水线执行", bk.run, "plain"), chip("评测", bk.eval, "plain")));
+      chip("训练", bk.train, "plain"), chip("流水线执行", bk.run, "plain"), chip("评测", bk.eval, "plain"),
+      sm.archived ? chip("已归档", sm.archived, "plain") : null));
 
   const root = h("div", { id: "app", "data-key": "app" },
     h("div", { class: "wrap", "data-key": "wrap" }, header, S.offline ? h("div", { class: "banner", "data-key": "banner" }, "无法连接看板服务，正在重试…") : null,
@@ -79,6 +80,17 @@ onAction("bltab", (key, id) => { S.sel[`${key}#tab`] = id; render(); });
 onAction("blopt", (k, v) => { S.sel[k] = /^[\d.]+$/.test(v) ? Number(v) : v; render(); });
 onAction("bldl", (key, fmt) => downloadBlock(key, fmt));
 onAction("fold", (key, _a2, _el, e) => { e.stopPropagation(); toggleFold(key); render(); });
+/* 归档 / 取消归档某个成员（任务、图、展示模块、校验集、资源池）：写回服务端后立刻重取状态 */
+onAction("arch", async (kind, id, el) => {
+  if (el.dataset.busy) return;
+  el.dataset.busy = "1";
+  try {
+    await fetch(`/api/archive/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: el.dataset.arch === "1" }) });
+  } catch (e) { /* 写失败就等下一轮轮询把显示纠正回来 */ }
+  await load();
+});
 /* 成果校验工作台的交互 */
 onAction("rvview", (k) => setView(k));
 onAction("rvrule", (id) => setRule(id));

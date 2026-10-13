@@ -357,6 +357,10 @@ def clean_task_patch(p: dict) -> dict:
             if v not in TASK_STATUS:
                 raise ValueError(f"status 必须是 {sorted(TASK_STATUS)}")
             out[k] = v
+        elif k == "archived":
+            if not isinstance(v, bool):
+                raise ValueError("archived 必须是 true / false")
+            out[k] = v
         elif k in ("done", "total", "started_at", "stale_after"):
             out[k] = _num(v, k)
         elif k == "progress":
@@ -794,6 +798,8 @@ def clean_definition(coll: str, obj) -> dict:
     if not isinstance(obj, dict):
         raise ValueError("定义必须是 JSON 对象")
     obj.pop("id", None)
+    if "archived" in obj and not isinstance(obj["archived"], bool):
+        raise ValueError("archived 必须是 true / false")
     if coll != "resources":
         _ver.check_fv(obj, f"{coll} 定义")                # 资源池本身不分版本，版本写在 items 的每一项上
     for k in _ver.DERIVED:
@@ -1217,6 +1223,38 @@ def define(coll: str, item_id: str, obj) -> dict:
         write_json(path, clean)
         _log_put(coll, item_id, clean, _def_label(coll, item_id, old, clean), True)
     return clean
+
+
+ARCHIVE_CN = {"pipelines": "Pipeline", "datasets": "数据图", "modules": "展示模块", "reviews": "校验集",
+              "resources": "资源池", "tasks": "任务"}
+
+
+def set_archived(coll: str, item_id: str, val=None) -> dict:
+    """归档 / 取消归档一个成员（定义类条目或任务）。
+
+    val: True 归档、False 取消归档、None 切换当前状态。
+    归档只是打一个标记：条目还在、还能点开，只是列表里收进「已归档」文件夹，
+    不再计入首页汇总与「需要关注」。"""
+    if coll not in DEF_COLLS and coll != "tasks":
+        raise ValueError(f"coll 必须是 {list(DEF_COLLS)} 或 tasks")
+    check_id(item_id)
+    if val is not None and not isinstance(val, bool):
+        raise ValueError("archived 必须是 true / false（或不传：切换）")
+    path = item_path(coll, item_id)
+    with lock():
+        obj = read_json(path, None)
+        if obj is None:
+            raise FileNotFoundError(f"{ARCHIVE_CN[coll]} {item_id} 不存在")
+        want = (not bool(obj.get("archived"))) if val is None else val
+        if bool(obj.get("archived")) == want:
+            return obj
+        if coll != "tasks":
+            obj["archived"] = want
+            write_json(path, obj)
+            _log_put(coll, item_id, obj, f"{'归档' if want else '取消归档'}{ARCHIVE_CN[coll]}"
+                                         f"「{obj.get('title') or item_id}」", True)
+            return obj
+    return update_task(item_id, {"archived": want})      # 锁外：任务走 update_task（心跳、终态等逻辑都在那里）
 
 
 def set_marks(rid: str, entries: list) -> dict:

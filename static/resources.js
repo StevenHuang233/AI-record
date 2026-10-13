@@ -1,7 +1,7 @@
 "use strict";
 /* 资源管理视图：API Key / GPU / CPU / 磁盘 / 服务。所有文本经 textContent 写入。
    密钥永远不在页面上出现——这里只显示「从哪取、有没有、额度多少、什么时候过期」。 */
-import { h, bar, badge, clip, fmtBytes, fmtNum, fmtPct, fmtTime, foldBtn, foldBody, isFolded, versionedCards, verTags, isHist } from "./util.js";
+import { h, bar, badge, clip, fmtBytes, fmtNum, fmtPct, fmtTime, foldBtn, foldBody, isFolded, versionedCards, verTags, isHist, archBtn, isArch } from "./util.js";
 import { S } from "./store.js";
 
 export const RES_KIND = { apikey: "API Key", gpu: "GPU", cpu: "CPU", disk: "磁盘 / 存储", service: "服务", other: "其他" };
@@ -125,12 +125,13 @@ export function itemMini(g, it, o = {}) {
     it.owner ? h("div", { class: "id" }, "负责人 " + it.owner) : null);
 }
 
-export function poolMini(g) {
+export function poolMini(g, o = {}) {
   if (g.error) return h("div", { class: "card err", "data-key": "rp:" + g.id }, `${g.id}: ${g.error}`);
   const sm = g.summary, bk = sm.by_kind;
   return h("a", { class: "card mini", href: resHref(g.id), "data-key": "rp:" + g.id, "data-fade": 1 },
     h("div", { class: "task-head" }, h("span", { class: "name" }, g.title || g.id), g._example ? tag("范例", "ex") : null,
-      sm.bad ? h("span", { class: "badge st-failed" }, `${sm.bad} 项异常`) : sm.warn ? h("span", { class: "badge st-stale" }, `${sm.warn} 项需关注`) : h("span", { class: "badge st-done" }, "全部正常")),
+      sm.bad ? h("span", { class: "badge st-failed" }, `${sm.bad} 项异常`) : sm.warn ? h("span", { class: "badge st-stale" }, `${sm.warn} 项需关注`) : h("span", { class: "badge st-done" }, "全部正常"),
+      S.state && (S.state.writable === false || !S.state.live) ? null : archBtn("resources", g.id, o.archived)),
     h("p", { class: "desc", style: { margin: "6px 0" } }, clip(g.description || "（未填写说明）", 150)),
     h("div", { class: "tags" }, KIND_ORDER.filter((k) => bk[k]).map((k) => tag(`${ICON[k]} ${RES_KIND[k]} ${bk[k].n}`))),
     h("div", { class: "kv" }, h("span", {}, h("b", {}, `${sm.total} 项资源`))));
@@ -192,6 +193,7 @@ export function itemPage(g, it) {
 export function resourceAttention(st) {
   const out = [];
   for (const g of st.resources || []) {
+    if (isArch(g)) continue;                                   // 已归档的池不用再提醒
     if (g.error) { out.push([`资源池 ${g.id} 解析失败`, resHref(g.id), "failed"]); continue; }
     for (const it of g.items) {
       if (isHist(it)) continue;                              // 被新版本取代的旧版本（如轮换前的密钥）：过期、撤销都是预期的
@@ -205,10 +207,10 @@ export function resourceAttention(st) {
 }
 
 export function resourceTileSub(st) {
-  const rs = (st.resources || []).filter((g) => !g.error);
+  const rs = (st.resources || []).filter((g) => !g.error && !isArch(g));
   if (!rs.length) return "API Key · GPU · CPU · 磁盘";
   const bad = rs.reduce((a, g) => a + g.summary.bad, 0), warn = rs.reduce((a, g) => a + g.summary.warn, 0);
   return bad || warn ? `${bad} 异常 · ${warn} 需关注` : "全部正常";
 }
 
-export const resourceCount = (st) => (st.resources || []).reduce((a, g) => a + (g.items ? g.items.length : 0), 0);
+export const resourceCount = (st) => (st.resources || []).reduce((a, g) => a + (isArch(g) ? 0 : g.items ? g.items.length : 0), 0);

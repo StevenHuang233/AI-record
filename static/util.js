@@ -109,9 +109,17 @@ export function patch(dstRoot, srcRoot) {
 /* ── 事件委托：元素用 data-act / data-a1 / data-a2 声明动作，patch 后不需要重新绑定 ── */
 const ACTIONS = {};
 export const onAction = (name, fn) => { ACTIONS[name] = fn; };
+/* 列表里的精简卡整张是链接（<a href>），卡内的动作默认会被吃掉；这几个动作要放行并阻止跳转 */
+const ACT_IN_LINK = new Set(["arch"]);
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
-  if (!el || e.target.closest("a[href]")) return;
+  if (!el) return;
+  const a = e.target.closest("a[href]");
+  if (a) {
+    if (!a.contains(el) || !ACT_IN_LINK.has(el.dataset.act)) return;
+    e.preventDefault();                        // 卡片里的按钮：只执行动作，不跟着整卡跳转
+    e.stopPropagation();
+  }
   const fn = ACTIONS[el.dataset.act];
   if (fn) fn(el.dataset.a1, el.dataset.a2, el, e);
 });
@@ -235,3 +243,27 @@ export const verTags = (x, o = {}) => [verLabel(x) ? h("span", { class: "tag ver
 
 /* 收起时返回 null，展开时原样返回内容：h("div", ..., head, foldBody(key, [正文...])) */
 export const foldBody = (key, kids, defClosed = false) => (isFolded(key, defClosed) ? null : kids);
+
+/* ── 归档：某个模块的成员不用了就收起来 ──────────────────────────────────────
+   归档只是打个标记，条目还在、还能点开看；列表里它不再占位，统一收进「已归档」文件夹
+   （默认收起，和「历史版本」一样），点开文件夹就能取消归档、放回列表。
+   归档的条目不计入首页汇总与「需要关注」。 */
+export const isArch = (x) => !!(x && x.archived);
+/* 整张卡是链接时按钮也能用：见上面的 ACT_IN_LINK。data-arch 是「点下去要变成的状态」 */
+export function archBtn(kind, id, archived) {
+  return h("button", { class: "arch", "data-act": "arch", "data-a1": kind, "data-a2": id,
+                       "data-key": "arch:" + kind + "/" + id, "data-arch": archived ? "0" : "1",
+                       title: archived ? "取消归档：放回列表里" : "归档：收进「已归档」文件夹，不再计入汇总" },
+    archived ? "取消归档" : "归档");
+}
+/* 折叠文件夹：▸ 已归档 N 个 —— 展开后是这些成员的卡片（卡上是「取消归档」） */
+export function archiveFolder(scope, items, card, label) {
+  if (!items.length) return null;
+  const hk = `arch:${scope}`;
+  return h("div", { class: "arch-box", "data-key": "ab:" + scope, "data-fade": 1 },
+    h("div", { class: "arch-bar", "data-key": "abb:" + scope }, foldBtn(hk, true),
+      h("span", { class: "vlabel" }, ` 已归档 ${items.length} 个`),
+      h("span", { class: "id" }, "：" + (label || "收起来的条目，点开可取消归档"))),
+    foldBody(hk, [h("div", { class: "tasks", "data-key": "abl:" + scope },
+      items.map((x) => card(x, { archived: true })))], true));
+}

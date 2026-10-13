@@ -144,6 +144,19 @@ def rm_task(task_id: str):
     return store.delete_task(task_id)
 
 
+def archive(coll: str, item_id: str, archived=None):
+    """归档 / 取消归档一个成员。
+
+    coll：pipelines / datasets / modules / reviews / resources / tasks。
+    archived：True 归档、False 取消归档、不传表示切换当前状态。
+    归档只是打标记：条目还在、还能点开，只是列表里收进「已归档」文件夹，不再计入汇总与「需要关注」。"""
+    check_id(item_id)
+    body = {} if archived is None else {"archived": bool(archived)}
+    if _remote():
+        return _http("POST", f"/api/archive/{coll}/{item_id}", body)
+    return store.set_archived(coll, item_id, archived)
+
+
 def self_proc() -> dict:
     """当前进程的身份（pid / host / pid_start），并进 sb.task(...) 即可让看板发现「进程没了但任务还在运行」：
         sb.task("x", status="running", **sb.self_proc())
@@ -288,6 +301,13 @@ def main(argv=None) -> int:
     r = sub.add_parser("rm-task", help="删除任务")
     r.add_argument("id")
 
+    ar = sub.add_parser("archive", help="归档 / 取消归档一个成员（收进页面的「已归档」文件夹，不再计入汇总）")
+    ar.add_argument("coll", choices=store.DEF_COLLS + ("tasks",))
+    ar.add_argument("id")
+    g = ar.add_mutually_exclusive_group()
+    g.add_argument("--off", action="store_true", help="取消归档（默认：归档）")
+    g.add_argument("--toggle", action="store_true", help="切换当前的归档状态")
+
     v = sub.add_parser("validate", help="体检：定义是否完整、引用是否有效")
     v.add_argument("--strict", action="store_true", help="有警告也返回非 0")
     v.add_argument("--ignore-example", action="store_true", dest="ignore_example",
@@ -340,6 +360,8 @@ def main(argv=None) -> int:
             mark(a.review_id, a.line, None if a.verdict == "clear" else a.verdict, a.note, a.tag)
         elif a.cmd == "rm-task":
             rm_task(a.id)
+        elif a.cmd == "archive":
+            archive(a.coll, a.id, None if a.toggle else not a.off)
         elif a.cmd == "validate":
             if _remote():
                 print("validate 只能在状态目录所在机器上运行（不要设置 SB_URL）", file=sys.stderr)

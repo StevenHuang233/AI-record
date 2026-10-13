@@ -6,6 +6,8 @@
 页面上最新版照常显示，历史版本收在「▸ 历史版本 N 个」后面。谁是最新由服务端按版本号数字段比大小。何时用、各处表现、历史版本为什么不报异常见 `patterns.md` P8b。
 写入定义：`sb.define(coll, id, dict_or_json_path)` 或 `python3 sb.py define <coll> <id> <file|->`（`-` 读 stdin）。
 
+**归档（通用）**：任何成员（Pipeline / 数据图 / 展示模块 / 校验集 / 资源池 / 任务）都能带 `"archived": true`。页面把它收进列表下方的「▸ 已归档 N 个」折叠文件夹（默认收起，点开可取消归档），它不再计入首页汇总与「需要关注」，但条目还在、还能点开看。页面上的「归档 / 取消归档」按钮、`sb.archive(coll, id, 可选 True/False)`、`python3 sb.py archive <coll> <id> [--off|--toggle]` 都是改这一个字段。
+
 ## 1. Pipeline `pipelines/<id>.json`
 
 ```json
@@ -389,6 +391,9 @@ python3 sb.py define resources pool res.json
 python3 sb.py resource pool llm_main --used 1250000 --note "本月"
 python3 sb.py resource pool gpu_a --alloc "微调=4:任务id" --alloc "评测=2"      # 整体替换；--alloc none 清空
 python3 sb.py rm-task <id>
+python3 sb.py archive pipelines old_flow            # 归档（收进「已归档」文件夹）
+python3 sb.py archive tasks old-run --off           # 取消归档
+python3 sb.py archive datasets g1 --toggle          # 切换
 python3 sb.py show
 python3 sb.py validate [--strict]
 ```
@@ -400,5 +405,5 @@ JSON 可解析、边引用的节点存在、图无环、孤立节点、缺 `titl
 ## 10. 服务与安全
 
 - 启动：`python3 server.py --port <p>`（默认只监听 127.0.0.1，并校验 Host）。对外监听必须 `export SB_TOKEN=…`，否则写接口关闭，且不向浏览器返回数据真实路径（`SB_SHOW_PATHS=1` 可开启）。
-- 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`（coll 含 `reviews`）、`POST /api/milestone`、`POST /api/review/<id>/marks`、`POST /api/resources/<池id>/<资源id>`（更新用量）；读样本 `GET /api/review/<id>?view=&page=&size=&rule=`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
+- 写接口：`POST /api/tasks/<id>`、`DELETE /api/tasks/<id>`、`POST /api/<pipelines|datasets>/<gid>/nodes/<nid>`、`PUT /api/define/<coll>/<id>`（coll 含 `reviews`）、`POST /api/milestone`、`POST /api/review/<id>/marks`、`POST /api/resources/<池id>/<资源id>`（更新用量）、`POST /api/archive/<pipelines|datasets|modules|reviews|resources|tasks>/<id>`（归档，`{"archived": true|false}`，省略则切换）；读样本 `GET /api/review/<id>?view=&page=&size=&rule=`；要求 `Content-Type: application/json`，有令牌则需 `Authorization: Bearer`。
 - 环境变量：`SB_STATE_DIR` `SB_ASSETS_DIR` `SB_TOKEN` `SB_URL` `SB_ALLOWED_HOSTS` `SB_EVENT_GAP` `SB_STAT_TTL` `SB_STAT_FILE_TTL` `SB_STAT_BUDGET` `SB_PROC_CHECK`（设 0 关闭进程存活检查）`SB_NO_PID`（设 1 让 sb.track 不带 pid） `SB_REVIEW_MAX_ROWS` `SB_REVIEW_BUDGET` `SB_PROBE_TTL`。

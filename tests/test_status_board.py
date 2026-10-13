@@ -875,5 +875,95 @@ class RoundTripTests(_StateCase):
         self.assertEqual(back["nodes"][0]["brief"], "一句话说明")
 
 
+class ArchiveTests(_StateCase):
+    """归档：只是给成员打个标记，条目还在，页面把它收进「已归档」文件夹。"""
+
+    def _graph(self):
+        return graph([data_node("a", brief="x")])
+
+    def test_definition_archived_roundtrip(self):
+        self._define("datasets", "g", self._graph())
+        self.assertFalse(sbstore.read_json(sbstore.item_path("datasets", "g"), {}).get("archived"))
+        out = sbstore.set_archived("datasets", "g", True)
+        self.assertTrue(out["archived"])
+        self.assertTrue(sbstore.read_json(sbstore.item_path("datasets", "g"), {})["archived"])
+
+    def test_undo_archive(self):
+        self._define("datasets", "g", self._graph())
+        sbstore.set_archived("datasets", "g", True)
+        self.assertFalse(sbstore.set_archived("datasets", "g", False)["archived"])
+        self.assertFalse(sbstore.read_json(sbstore.item_path("datasets", "g"), {}).get("archived"))
+
+    def test_toggle(self):
+        self._define("modules", "m", {"title": "m", "blocks": [{"type": "kv", "items": [{"k": "a", "v": 1}]}]})
+        self.assertTrue(sbstore.set_archived("modules", "m")["archived"])      # 不传值 = 切换
+        self.assertFalse(sbstore.set_archived("modules", "m")["archived"])
+
+    def test_archive_keeps_definition_content(self):
+        """归档不能把定义内容弄丢：取消归档后还是原来那份。"""
+        g = self._graph()
+        self._define("datasets", "g", g)
+        sbstore.set_archived("datasets", "g", True)
+        back = sbstore.read_json(sbstore.item_path("datasets", "g"), {})
+        self.assertEqual(back["nodes"][0]["id"], "a")
+        self.assertEqual(back["title"], g["title"])
+
+    def test_archive_logs_event(self):
+        self._define("datasets", "g", self._graph())
+        sbstore.set_archived("datasets", "g", True)
+        labels = [e.get("label", "") for e in sbstore.events_refresh()]
+        self.assertTrue(any("归档" in x and "取消" not in x for x in labels), labels)
+        sbstore.set_archived("datasets", "g", False)
+        self.assertTrue(any("取消归档" in x for x in [e.get("label", "") for e in sbstore.events_refresh()]))
+
+    def test_task_archived(self):
+        sbstore.update_task("t1", {"kind": "train", "status": "running"})
+        self.assertTrue(sbstore.set_archived("tasks", "t1", True)["archived"])
+        self.assertTrue(sbstore.read_json(sbstore.item_path("tasks", "t1"), {}).get("archived"))
+        self.assertFalse(sbstore.set_archived("tasks", "t1", False).get("archived"))
+
+    def test_archive_missing_item(self):
+        with self.assertRaises(FileNotFoundError):
+            sbstore.set_archived("datasets", "nope", True)
+        with self.assertRaises(FileNotFoundError):
+            sbstore.set_archived("tasks", "nope", True)
+
+    def test_bad_coll_or_value(self):
+        self._define("datasets", "g", self._graph())
+        with self.assertRaises(ValueError):
+            sbstore.set_archived("marks", "g", True)
+        with self.assertRaises(ValueError):
+            sbstore.set_archived("datasets", "g", "yes")
+
+    def test_definition_rejects_non_bool_archived(self):
+        with self.assertRaises(ValueError):
+            sbstore.clean_definition("datasets", dict(self._graph(), archived="true"))
+        self.assertTrue(sbstore.clean_definition("datasets", dict(self._graph(), archived=True))["archived"])
+
+    def test_task_patch_rejects_non_bool_archived(self):
+        with self.assertRaises(ValueError):
+            sbstore.clean_task_patch({"archived": 1})
+        self.assertTrue(sbstore.clean_task_patch({"archived": True})["archived"])
+
+    def test_archived_task_excluded_from_summary(self):
+        """归档的任务不再出现在首页汇总里（server.build_state 只数没归档的）。"""
+        import server
+        sbstore.update_task("t1", {"kind": "train", "status": "failed"})
+        sbstore.update_task("t2", {"kind": "train", "status": "failed"})
+        sbstore.set_archived("tasks", "t2", True)
+        st = server.build_state(sbstore._load_raw() if hasattr(sbstore, "_load_raw") else {
+            c: {i: sbstore.read_json(sbstore.item_path(c, i), {}) for i in sbstore.list_ids(c)} for c in sbstore.COLLS},
+            time.time(), False)
+        self.assertEqual(st["summary"]["failed"], 1)
+        self.assertEqual(st["summary"]["archived"], 1)
+        self.assertEqual(st["by_kind"]["train"], 1)
+
+    def test_state_carries_archived_flag(self):
+        import server
+        self._define("datasets", "g", self._graph())
+        sbstore.set_archived("datasets", "g", True)
+        self.assertTrue(server.build_state(server.load_raw(), time.time(), False)["datasets"][0]["archived"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
